@@ -1,0 +1,27 @@
+[project]
+name = "castmane"
+version = "0.1.0"
+description = "OBS'e inat crash-safe ekran kaydedici (Wayland-first, Qt + GStreamer/FFmpeg)"
+readme = "README.md"
+license = { text = "GPL-3.0-or-later" }
+requires-python = ">=3.10"
+dependencies = [
+  "PySide6>=6.6",
+  "PyGObject>=3.44",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.4"]
+
+[project.scripts]
+castmane = "castmane.__main__:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py310"

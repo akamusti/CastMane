@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+# crash-safe recordings: partial chunks are kept locally, only final .mp4 matters
+*.part
+Videos/
