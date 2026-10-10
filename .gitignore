@@ -8,3 +8,6 @@ build/
 # crash-safe recordings: partial chunks are kept locally, only final .mp4 matters
 *.part
 Videos/
+# secrets / local env (no secrets in repo yet, preventive)
+.env
+.env.*
