@@ -36,7 +36,10 @@ CastMane bunun yerine:
 - 🖥️ **X11 yedeği**: `ffmpeg` (`x11grab`), otomatik seçilir
 - 🛡️ Crash-safe çıktı hattı (parçalı MP4, `.part` staging, atomik rename,
   encoder izcisi)
-- 🪶 Sade Qt arayüzü: Kayıt / Durdur, süre, durum satırı
+- 🪶 Sade Qt arayüzü: Kayıt / Durdur / Duraklat, süre, durum satırı
+- ⏸️ Duraklat / devam et (encoder dondurulur, duraklatılan süre sayılmaz) ve
+  kalite ön ayarları: Taslak (24 fps, 4 Mbps), Dengeli (30 fps, 8 Mbps),
+  Yüksek (60 fps, 16 Mbps)
 - 🪟 Kayıt kaynağı seçimi: tam ekran, tek pencere ya da her seferinde sor
   (Wayland: portal diyafonu; X11: sabit bölge, pencere kimliği ya da sürükle-seç)
 - 🔊 İsteğe bağlı ses kaydı (varsayılan mikrofon, monitor cihazıyla sistem sesi),
@@ -124,7 +127,20 @@ sürümlerinde çalışmaya devam eder.
 - [x] Crash-safe çıktı hattı
 - [x] Ses kaydı (varsayılan mikrofon; `audio_source` monitor cihazıyla sistem sesi)
 - [x] Pencere / bölge seçimi
-- [ ] Duraklat / devam et, kalite ön ayarları
+- [x] Duraklat / devam et, kalite ön ayarları
+
+### Duraklatma ve kalite
+
+Kayıt sırasında **⏸ Duraklat** encoder'ı dondurur (`SIGSTOP`); süre
+işlemez ve duraklatılan aralık görüntüye girmez. **▶ Sürdür** aynı
+dosyaya devam eder. Duraklatılmışken durdurma yapılırsa önce sürdürme
+yapılır, böylece trailer her zaman temiz yazılır.
+
+```python
+from castmane.config import AppConfig
+cfg = AppConfig()
+cfg.apply_quality_preset("high")  # "draft" | "balanced" | "high"
+```
 
 ### Kayıt kaynağı
 

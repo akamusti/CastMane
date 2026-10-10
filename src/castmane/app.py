@@ -36,6 +36,10 @@ class MainWindow(QMainWindow):
         self.rec_btn.setStyleSheet("font-size: 16px; padding: 10px;")
         self.rec_btn.clicked.connect(self.toggle)
 
+        self.pause_btn = QPushButton("⏸ Duraklat")
+        self.pause_btn.setEnabled(False)
+        self.pause_btn.clicked.connect(self.toggle_pause)
+
         self.audio_cb = QCheckBox("Sesli kaydet (mikrofon)")
         self.audio_cb.setChecked(self.cfg.audio_enabled)
         self.audio_cb.toggled.connect(self._on_audio_toggled)
@@ -60,6 +64,15 @@ class MainWindow(QMainWindow):
             self.mode_cb.setCurrentIndex(idx)
         self.mode_cb.currentIndexChanged.connect(self._on_mode_changed)
 
+        self.quality_cb = QComboBox()
+        self.quality_cb.addItem("Taslak (hafif)", "draft")
+        self.quality_cb.addItem("Dengeli", "balanced")
+        self.quality_cb.addItem("Yüksek", "high")
+        idx = self.quality_cb.findData(self.cfg.quality_preset)
+        if idx >= 0:
+            self.quality_cb.setCurrentIndex(idx)
+        self.quality_cb.currentIndexChanged.connect(self._on_quality_changed)
+
         # X11 sabit bolge: W/H sifirsa tam ekran, yoksa WxH+X+Y.
         self.region_spins: dict[str, QSpinBox] = {}
         region_row = QHBoxLayout()
@@ -83,6 +96,7 @@ class MainWindow(QMainWindow):
 
         btn_row = QHBoxLayout()
         btn_row.addWidget(self.rec_btn)
+        btn_row.addWidget(self.pause_btn)
         btn_row.addWidget(quit_btn)
 
         layout = QVBoxLayout()
@@ -91,6 +105,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.audio_cb)
         layout.addLayout(audio_row)
         layout.addWidget(self.mode_cb)
+        layout.addWidget(self.quality_cb)
         layout.addLayout(region_row)
         layout.addLayout(btn_row)
 
@@ -124,7 +139,10 @@ class MainWindow(QMainWindow):
             self.audio_cb.setEnabled(False)
             self.gain_spin.setEnabled(False)
             self.mode_cb.setEnabled(False)
+            self.quality_cb.setEnabled(False)
             self._set_region_enabled(False)
+            self.pause_btn.setEnabled(True)
+            self.pause_btn.setText("⏸ Duraklat")
             self.timer.start()
         else:
             out = self.rec.stop()
@@ -132,7 +150,10 @@ class MainWindow(QMainWindow):
             self.audio_cb.setEnabled(True)
             self.gain_spin.setEnabled(True)
             self.mode_cb.setEnabled(True)
+            self.quality_cb.setEnabled(True)
             self._set_region_enabled(True)
+            self.pause_btn.setEnabled(False)
+            self.pause_btn.setText("⏸ Duraklat")
             if out:
                 self.status_lbl.setText(f"Kurtarildi: {out}")
             else:
@@ -153,6 +174,38 @@ class MainWindow(QMainWindow):
         try:
             self.rec.cfg.audio_gain = gain
         except AttributeError:
+            pass
+
+    def toggle_pause(self) -> None:
+        if not self.rec.state.active:
+            return
+        try:
+            if self.rec.state.paused:
+                self.rec.resume()
+                self.pause_btn.setText("⏸ Duraklat")
+                tmp = self.rec.state.tmp_path
+                self.status_lbl.setText(
+                    f"Kaydediliyor -> {tmp.name if tmp else ''}"
+                )
+            else:
+                self.rec.pause()
+                self.pause_btn.setText("▶ Sürdür")
+                self.status_lbl.setText("Duraklatıldı — süre işlemiyor")
+        except Exception as e:  # noqa: BLE001
+            self.status_lbl.setText(f"Duraklatma hatası: {e}")
+
+    def _on_quality_changed(self, idx: int) -> None:
+        preset = self.quality_cb.itemData(idx)
+        if not preset:
+            return
+        try:
+            self.cfg.apply_quality_preset(preset)
+        except ValueError:
+            return
+        # Backend cfg'yi referans tutar; sonraki kayda uygulanir.
+        try:
+            self.rec.cfg.apply_quality_preset(preset)
+        except (AttributeError, ValueError):
             pass
 
     def _on_mode_changed(self, idx: int) -> None:
@@ -190,6 +243,13 @@ class MainWindow(QMainWindow):
         if self.rec.state.last_error and not self.rec.state.active:
             self.status_lbl.setText(f"Hata: {self.rec.state.last_error}")
             self.rec_btn.setText("● Kayda Basla")
+            self.pause_btn.setEnabled(False)
+            self.pause_btn.setText("⏸ Duraklat")
+            self.audio_cb.setEnabled(True)
+            self.gain_spin.setEnabled(True)
+            self.mode_cb.setEnabled(True)
+            self.quality_cb.setEnabled(True)
+            self._set_region_enabled(True)
             self.timer.stop()
 
     def closeEvent(self, event) -> None:  # noqa: N802

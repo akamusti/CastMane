@@ -41,6 +41,9 @@ class RecordingState:
     mkv_path: Path | None = None  # portal backend ara urunu (MKV)
     started_at: float = 0.0
     last_error: str = ""
+    paused: bool = False  # SIGSTOP ile donduruldu
+    pause_started: float = 0.0
+    paused_total: float = 0.0  # toplam duraklatilmis sure
 
 
 class FfmpegX11Recorder:
@@ -134,6 +137,9 @@ class FfmpegX11Recorder:
         if not self.state.active or self._proc is None:
             return None
         self._stop_requested.set()
+        if self.state.paused:
+            # Durdurulmus surec sinyalleri islemez; once surdur.
+            self.resume()
         # once graceful SIGINT (ffmpeg trailer yazar), olmazsa SIGTERM
         self._proc.send_signal(signal.SIGINT)
         try:
@@ -155,7 +161,27 @@ class FfmpegX11Recorder:
     def elapsed(self) -> float:
         if not self.state.started_at:
             return 0.0
-        return time.time() - self.state.started_at
+        end = self.state.pause_started if self.state.paused else time.time()
+        return end - self.state.started_at - self.state.paused_total
+
+    def pause(self) -> None:
+        """Encoder surecini dondur (SIGSTOP). Saat de donar: duraklatilan
+        sure `elapsed` disinda tutulur, videoda atlama olarak gorunur."""
+        if not self.state.active or self._proc is None:
+            raise RuntimeError("duraklatilacak aktif kayit yok")
+        if self.state.paused:
+            return
+        self._proc.send_signal(signal.SIGSTOP)
+        self.state.paused = True
+        self.state.pause_started = time.time()
+
+    def resume(self) -> None:
+        if not self.state.paused or self._proc is None:
+            raise RuntimeError("surdurulecek duraklatilmis kayit yok")
+        self._proc.send_signal(signal.SIGCONT)
+        self.state.paused_total += time.time() - self.state.pause_started
+        self.state.paused = False
+        self.state.pause_started = 0.0
 
 
 @dataclass

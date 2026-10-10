@@ -142,7 +142,28 @@ class PortalRecorder:
     def elapsed(self) -> float:
         if not self.state.started_at:
             return 0.0
-        return time.time() - self.state.started_at
+        end = self.state.pause_started if self.state.paused else time.time()
+        return end - self.state.started_at - self.state.paused_total
+
+    def pause(self) -> None:
+        """gst-launch hattini dondur (SIGSTOP). Donusunde PipeWire
+        kuyrugundaki bayat kareler kisa bir yetisme olarak gorunebilir;
+        kayit butunlugu (.part + remux) etkilenmez."""
+        if not self.state.active or self._proc is None:
+            raise RuntimeError("duraklatilacak aktif kayit yok")
+        if self.state.paused:
+            return
+        self._proc.send_signal(signal.SIGSTOP)
+        self.state.paused = True
+        self.state.pause_started = time.time()
+
+    def resume(self) -> None:
+        if not self.state.paused or self._proc is None:
+            raise RuntimeError("surdurulecek duraklatilmis kayit yok")
+        self._proc.send_signal(signal.SIGCONT)
+        self.state.paused_total += time.time() - self.state.pause_started
+        self.state.paused = False
+        self.state.pause_started = 0.0
 
     # -- public API --
 
@@ -186,6 +207,9 @@ class PortalRecorder:
     def stop(self) -> Path | None:
         if not self.state.active or self._proc is None:
             return None
+        if self.state.paused:
+            # Durdurulmus surec sinyalleri islemez; once surdur.
+            self.resume()
         # Once nazik SIGINT (muxer trailer yazsin), olmazsa sert kapat.
         self._proc.send_signal(signal.SIGINT)
         try:

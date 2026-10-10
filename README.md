@@ -38,7 +38,9 @@ instead:
 - 🖥️ **X11 fallback** via `ffmpeg` (`x11grab`), selected automatically
 - 🛡️ Crash-safe output pipeline (fragmented MP4, `.part` staging, atomic rename,
   encoder watchdog)
-- 🪶 Minimal Qt interface: Record / Stop, elapsed timer, status line
+- 🪶 Minimal Qt interface: Record / Stop / Pause, elapsed timer, status line
+- ⏸️ Pause / resume (freezes the encoder, paused time excluded) and quality
+  presets: Draft (24 fps, 4 Mbps), Balanced (30 fps, 8 Mbps), High (60 fps, 16 Mbps)
 - 🪟 Capture source choice: full-screen, single window, or ask every time
   (Wayland: portal dialog; X11: fixed region, window id, or drag-to-select)
 - 🔊 Optional audio capture (mic by default, system sound via monitor device),
@@ -124,7 +126,20 @@ across `xdg-desktop-portal` versions.
 - [x] Crash-safe output pipeline
 - [x] Audio capture (mic by default; system sound via `audio_source` monitor device)
 - [x] Window / region selection
-- [ ] Pause / resume, configurable quality presets
+- [x] Pause / resume, configurable quality presets
+
+### Pause & quality
+
+Press **⏸ Pause** mid-recording to freeze the encoder (`SIGSTOP`); the timer
+stops and the paused stretch is left out of the footage. **▶ Resume**
+continues into the same file. Stopping while paused resumes first, so the
+trailer is always written cleanly.
+
+```python
+from castmane.config import AppConfig
+cfg = AppConfig()
+cfg.apply_quality_preset("high")  # "draft" | "balanced" | "high"
+```
 
 ### Capture source
 

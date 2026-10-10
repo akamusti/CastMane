@@ -28,6 +28,21 @@ class AppConfig:
     # yukseltin, örn. 2.0 (~+6 dB) veya 3.0 (~+9.5 dB). 5.0'yi
     # gecmeyin (kırpılma/distorsiyon riski).
     audio_gain: float = 1.0
+    # Kalite on ayari: "draft" (hafif/hizli), "balanced" (varsayilan),
+    # "high" (yogun). fps X11 yakalamayi, bitrate iki backend'i de etkiler.
+    quality_preset: str = "balanced"
+
+    def apply_quality_preset(self, name: str) -> None:
+        presets = {
+            "draft": {"fps": 24, "video_bitrate_kbps": 4000},
+            "balanced": {"fps": 30, "video_bitrate_kbps": 8000},
+            "high": {"fps": 60, "video_bitrate_kbps": 16000},
+        }
+        if name not in presets:
+            raise ValueError(f"bilinmeyen kalite on ayari: {name}")
+        self.quality_preset = name
+        self.fps = presets[name]["fps"]
+        self.video_bitrate_kbps = presets[name]["video_bitrate_kbps"]
     # Kaynak secimi: "fullscreen" (monitor), "window" (pencere),
     # "ask" (kullanicidan secmesi istenir).
     # Wayland: portal SelectSources `types` bitmask'ine cevrilir
