@@ -1,0 +1,60 @@
+---
+title: CastMane
+description: Crash-safe screen recorder for Linux (Wayland-first). If the app crashes mid-recording, your footage survives.
+template: splash
+hero:
+  tagline: If the app crashes mid-recording, your footage survives.
+  image:
+    file: ../../assets/logo.png
+    alt: CastMane logo
+  actions:
+    - text: Download AppImage
+      link: https://github.com/akamusti/CastMane/releases
+      icon: external
+      variant: primary
+    - text: Get started
+      link: /getting-started/installation/
+      icon: right-arrow
+      variant: secondary
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## Why CastMane?
+
+Many recorders write the `.mp4` index only on clean shutdown — if the app
+crashes mid-recording, the whole file is often lost. CastMane is built around
+a single principle: **a crash must never cost you the footage.**
+
+> Verified: a recording killed with `kill -9` remains fully playable
+> (`h264`, `ffprobe`-checked). See the
+> [crash-safety guide](/guides/crash-safety/).
+
+<CardGrid stagger>
+  <Card title="Crash-safe by design" icon="shield">
+    Fragmented container, `.part` staging, atomic rename, graceful shutdown
+    escalation, and an encoder watchdog.
+  </Card>
+  <Card title="Wayland-first, X11 fallback" icon="desktop">
+    Native capture via `xdg-desktop-portal` ScreenCast + GStreamer on Wayland,
+    automatic `ffmpeg` (`x11grab`) fallback on X11.
+  </Card>
+  <Card title="Minimal UI" icon="star">
+    Record / Stop / Pause, elapsed timer, status line. Draft / Balanced / High
+    quality presets.
+  </Card>
+  <Card title="One-file install" icon="download">
+    A single AppImage bundles Python, Qt, and all dependencies. No venv, no
+    pip, no toolchain.
+  </Card>
+</CardGrid>
+
+## Quick start
+
+```bash
+chmod +x CastMane-*.AppImage
+./CastMane-*.AppImage
+```
+
+That's it. Full instructions are in
+[Installation](/getting-started/installation/).

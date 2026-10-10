@@ -11,6 +11,12 @@ AppDir/
 # crash-safe recordings: partial chunks are kept locally, only final .mp4 matters
 *.part
 Videos/
+# node / website (Astro Starlight)
+node_modules/
+website/node_modules/
+website/dist/
+website/.astro/
+npm-debug.log*
 # secrets / local env (no secrets in repo yet, preventive)
 .env
 .env.*
