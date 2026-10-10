@@ -6,7 +6,7 @@ description: Wayland ve X11'de sık görülen CastMane sorunları.
 ## Uygulama bir şeylerin eksik olduğunu söylüyor
 
 CastMane, kurulması gereken paketi adıyla söyleyen bir pencere gösterir.
-Dağıtımınıza uygun komutlar için [Kurulum](/tr/getting-started/installation/)
+Dağıtımınıza uygun komutlar için [Kurulum](../getting-started/installation/)
 sayfasına bakın.
 
 ## Ekran paylaşım diyafonu açılmıyor (Wayland)
@@ -27,7 +27,7 @@ dolarsa **Kayıt**'a yeniden basın.
   `castmane_*.mp4` olarak durur.
 - Uygulama öldürüldüyse aynı klasördeki `*.mkv.part` (Wayland) ya da
   `*.mp4.part` (X11) dosyasına bakın — bkz.
-  [Kullanım](/tr/getting-started/usage/#yarıda-kesilen-kaydı-kurtarma).
+  [Kullanım](../getting-started/usage/#yarıda-kesilen-kaydı-kurtarma).
 
 ## Hata bildirimi
 

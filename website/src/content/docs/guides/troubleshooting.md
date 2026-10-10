@@ -6,7 +6,7 @@ description: Fix common CastMane problems on Wayland and X11.
 ## The app says something is missing
 
 CastMane shows a popup naming the exact package to install. Re-check
-[Installation](/getting-started/installation/) for the per-distro commands.
+[Installation](../getting-started/installation/) for the per-distro commands.
 
 ## No screen-share dialog appears (Wayland)
 
@@ -25,7 +25,7 @@ expires, just press **Record** again.
 - Finished files are timestamped `castmane_*.mp4` in `~/Videos/CastMane`.
 - If the app was killed, look for the `*.mkv.part` (Wayland) or `*.mp4.part`
   (X11) file in the same folder — see
-  [Usage](/getting-started/usage/#recovering-an-interrupted-recording).
+  [Usage](../getting-started/usage/#recovering-an-interrupted-recording).
 
 ## Bug reports
 
