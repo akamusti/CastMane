@@ -1,14 +1,18 @@
-"""Qt ana pencere - MVP: Rec/Stop + sure + durum."""
+"""Qt ana pencere - Rec/Stop + sure + durum."""
 from __future__ import annotations
 
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFrame,
+    QGridLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QPushButton,
+    QSizePolicy,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -17,6 +21,156 @@ from PySide6.QtWidgets import (
 from .backends import create_backend, session_is_wayland
 from .config import AppConfig
 
+STYLESHEET = """
+QMainWindow, QWidget {
+    background-color: #16181d;
+    color: #e6e8ec;
+    font-family: "Segoe UI", "Noto Sans", "Ubuntu", sans-serif;
+    font-size: 13px;
+}
+QFrame#Card {
+    background-color: #1f232b;
+    border: 1px solid #2b313b;
+    border-radius: 12px;
+}
+QLabel#StatusLabel {
+    color: #9aa4b2;
+    font-size: 12px;
+}
+QLabel#SectionTitle {
+    color: #9aa4b2;
+    font-size: 11px;
+    font-weight: bold;
+}
+QLabel#OutputLabel {
+    color: #7f8896;
+    font-size: 11px;
+}
+QLabel#TimeLabel {
+    color: #f2f4f8;
+    font-size: 46px;
+    font-weight: bold;
+}
+QLabel#TimeLabel[recording="true"] {
+    color: #ff5f56;
+}
+QGroupBox {
+    background-color: transparent;
+    border: none;
+    margin-top: 4px;
+    padding-top: 14px;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 0px;
+    color: #9aa4b2;
+    font-size: 11px;
+    font-weight: bold;
+}
+QPushButton {
+    background-color: #272d38;
+    border: 1px solid #333b48;
+    border-radius: 8px;
+    padding: 8px 16px;
+    color: #e6e8ec;
+}
+QPushButton:hover {
+    background-color: #2f3745;
+    border-color: #404a5a;
+}
+QPushButton:pressed {
+    background-color: #232935;
+}
+QPushButton:disabled {
+    background-color: #1c2029;
+    color: #565e6b;
+    border-color: #262c36;
+}
+QPushButton#RecordButton {
+    background-color: #2f6b3f;
+    border: 1px solid #3d8a53;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: bold;
+    padding: 12px 24px;
+    color: #ffffff;
+}
+QPushButton#RecordButton:hover {
+    background-color: #378049;
+    border-color: #4aa066;
+}
+QPushButton#RecordButton:pressed {
+    background-color: #265932;
+}
+QPushButton#RecordButton[recording="true"] {
+    background-color: #8c2f2a;
+    border-color: #a83c35;
+}
+QPushButton#RecordButton[recording="true"]:hover {
+    background-color: #9d3630;
+}
+QPushButton#QuitButton {
+    background-color: transparent;
+    border-color: #333b48;
+    color: #9aa4b2;
+}
+QPushButton#QuitButton:hover {
+    background-color: #272d38;
+    color: #e6e8ec;
+}
+QComboBox {
+    background-color: #272d38;
+    border: 1px solid #333b48;
+    border-radius: 8px;
+    padding: 6px 10px;
+    min-height: 18px;
+}
+QComboBox:hover {
+    border-color: #404a5a;
+}
+QComboBox::drop-down {
+    border: none;
+    width: 22px;
+}
+QComboBox QAbstractItemView {
+    background-color: #1f232b;
+    border: 1px solid #333b48;
+    selection-background-color: #2f6b3f;
+    selection-color: #ffffff;
+    padding: 4px;
+}
+QSpinBox {
+    background-color: #272d38;
+    border: 1px solid #333b48;
+    border-radius: 8px;
+    padding: 5px 8px;
+}
+QSpinBox:hover {
+    border-color: #404a5a;
+}
+QCheckBox {
+    spacing: 8px;
+}
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    border-radius: 5px;
+    border: 1px solid #333b48;
+    background-color: #272d38;
+}
+QCheckBox::indicator:hover {
+    border-color: #404a5a;
+}
+QCheckBox::indicator:checked {
+    background-color: #2f6b3f;
+    border-color: #3d8a53;
+}
+QCheckBox:disabled {
+    color: #565e6b;
+}
+"""
+
 
 class MainWindow(QMainWindow):
     def __init__(self, cfg: AppConfig | None = None) -> None:
@@ -24,37 +178,45 @@ class MainWindow(QMainWindow):
         self.cfg = cfg or AppConfig()
         self.rec = create_backend(self.cfg)
         self.setWindowTitle("CastMane")
-        self.resize(420, 280)
+        self.resize(460, 520)
+        self.setStyleSheet(STYLESHEET)
+
+        root = QWidget()
+        self.setCentralWidget(root)
+        outer = QVBoxLayout(root)
+        outer.setContentsMargins(16, 16, 16, 16)
+        outer.setSpacing(12)
+
+        # --- Ust kart: kronometre + durum ---
+        self.time_lbl = QLabel("00:00")
+        self.time_lbl.setObjectName("TimeLabel")
+        self.time_lbl.setAlignment(Qt.AlignCenter)
+        self.time_lbl.setProperty("recording", False)
 
         self.status_lbl = QLabel(f"Hazir [{self.rec.name}]. Cikti: ~/Videos/CastMane")
+        self.status_lbl.setObjectName("StatusLabel")
         self.status_lbl.setAlignment(Qt.AlignCenter)
-        self.time_lbl = QLabel("00:00")
-        self.time_lbl.setAlignment(Qt.AlignCenter)
-        self.time_lbl.setStyleSheet("font-size: 42px; font-weight: bold;")
+        self.status_lbl.setWordWrap(True)
 
+        top = QFrame()
+        top.setObjectName("Card")
+        top_layout = QVBoxLayout(top)
+        top_layout.setContentsMargins(20, 24, 20, 20)
+        top_layout.setSpacing(6)
+        top_layout.addWidget(self.time_lbl)
+        top_layout.addWidget(self.status_lbl)
+        outer.addWidget(top)
+
+        # --- Kayit butonu ---
         self.rec_btn = QPushButton("● Kayda Basla")
-        self.rec_btn.setStyleSheet("font-size: 16px; padding: 10px;")
+        self.rec_btn.setObjectName("RecordButton")
+        self.rec_btn.setProperty("recording", False)
+        self.rec_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.rec_btn.setCursor(Qt.PointingHandCursor)
         self.rec_btn.clicked.connect(self.toggle)
+        outer.addWidget(self.rec_btn)
 
-        self.pause_btn = QPushButton("⏸ Duraklat")
-        self.pause_btn.setEnabled(False)
-        self.pause_btn.clicked.connect(self.toggle_pause)
-
-        self.audio_cb = QCheckBox("Sesli kaydet (mikrofon)")
-        self.audio_cb.setChecked(self.cfg.audio_enabled)
-        self.audio_cb.toggled.connect(self._on_audio_toggled)
-
-        audio_row = QHBoxLayout()
-        audio_row.addWidget(QLabel("Ses kazancı:"))
-        self.gain_spin = QSpinBox()
-        self.gain_spin.setPrefix("%")
-        self.gain_spin.setRange(10, 500)
-        self.gain_spin.setSingleStep(10)
-        self.gain_spin.setValue(int(self.cfg.audio_gain * 100))
-        self.gain_spin.valueChanged.connect(self._on_gain_changed)
-        audio_row.addWidget(self.gain_spin)
-        audio_row.addStretch(1)
-
+        # --- Kaynak ve kalite karti ---
         self.mode_cb = QComboBox()
         self.mode_cb.addItem("Tam Ekran", "fullscreen")
         self.mode_cb.addItem("Pencere", "window")
@@ -73,7 +235,55 @@ class MainWindow(QMainWindow):
             self.quality_cb.setCurrentIndex(idx)
         self.quality_cb.currentIndexChanged.connect(self._on_quality_changed)
 
-        # X11 sabit bolge: W/H sifirsa tam ekran, yoksa WxH+X+Y.
+        src_card = QFrame()
+        src_card.setObjectName("Card")
+        src_layout = QGridLayout(src_card)
+        src_layout.setContentsMargins(20, 16, 20, 18)
+        src_layout.setHorizontalSpacing(14)
+        src_layout.setVerticalSpacing(10)
+
+        title1 = QLabel("KAYIT AYARLARI")
+        title1.setObjectName("SectionTitle")
+        src_layout.addWidget(title1, 0, 0, 1, 2)
+
+        src_layout.addWidget(QLabel("Kaynak:"), 1, 0)
+        src_layout.addWidget(self.mode_cb, 1, 1)
+        src_layout.addWidget(QLabel("Kalite:"), 2, 0)
+        src_layout.addWidget(self.quality_cb, 2, 1)
+        src_layout.setColumnStretch(1, 1)
+        outer.addWidget(src_card)
+
+        # --- Ses karti ---
+        self.audio_cb = QCheckBox("Sesli kaydet (mikrofon)")
+        self.audio_cb.setChecked(self.cfg.audio_enabled)
+        self.audio_cb.toggled.connect(self._on_audio_toggled)
+
+        audio_row = QHBoxLayout()
+        gain_lbl = QLabel("Ses kazancı:")
+        audio_row.addWidget(gain_lbl)
+        self.gain_spin = QSpinBox()
+        self.gain_spin.setPrefix("%")
+        self.gain_spin.setRange(10, 500)
+        self.gain_spin.setSingleStep(10)
+        self.gain_spin.setValue(int(self.cfg.audio_gain * 100))
+        self.gain_spin.valueChanged.connect(self._on_gain_changed)
+        audio_row.addWidget(self.gain_spin)
+        audio_row.addStretch(1)
+
+        audio_card = QFrame()
+        audio_card.setObjectName("Card")
+        audio_layout = QVBoxLayout(audio_card)
+        audio_layout.setContentsMargins(20, 16, 20, 18)
+        audio_layout.setSpacing(10)
+        title2 = QLabel("SES")
+        title2.setObjectName("SectionTitle")
+        audio_layout.addWidget(title2)
+        audio_layout.addWidget(self.audio_cb)
+        audio_layout.addLayout(audio_row)
+        outer.addWidget(audio_card)
+
+        # --- X11 sabit bolge karti ---
+        # W/H sifirsa tam ekran, yoksa WxH+X+Y.
         self.region_spins: dict[str, QSpinBox] = {}
         region_row = QHBoxLayout()
         region_row.addWidget(QLabel("Bölge (X11):"))
@@ -90,28 +300,43 @@ class MainWindow(QMainWindow):
             spin.valueChanged.connect(self._on_region_changed)
             self.region_spins[key] = spin
             region_row.addWidget(spin)
+        region_row.addStretch(1)
+
+        region_card = QFrame()
+        region_card.setObjectName("Card")
+        region_layout = QVBoxLayout(region_card)
+        region_layout.setContentsMargins(20, 16, 20, 18)
+        region_layout.setSpacing(10)
+        title3 = QLabel("BÖLGE")
+        title3.setObjectName("SectionTitle")
+        region_layout.addWidget(title3)
+        region_layout.addLayout(region_row)
+        outer.addWidget(region_card)
+
+        outcome_lbl = QLabel(
+            "Dosyalar ~/Videos/CastMane içine zaman damgasıyla kaydedilir"
+        )
+        outcome_lbl.setObjectName("OutputLabel")
+        outcome_lbl.setAlignment(Qt.AlignCenter)
+        outcome_lbl.setWordWrap(True)
+        outer.addWidget(outcome_lbl)
+
+        # --- Alt butonlar ---
+        self.pause_btn = QPushButton("⏸ Duraklat")
+        self.pause_btn.setEnabled(False)
+        self.pause_btn.setCursor(Qt.PointingHandCursor)
+        self.pause_btn.clicked.connect(self.toggle_pause)
 
         quit_btn = QPushButton("Cikis")
+        quit_btn.setObjectName("QuitButton")
+        quit_btn.setCursor(Qt.PointingHandCursor)
         quit_btn.clicked.connect(self.close)
 
         btn_row = QHBoxLayout()
-        btn_row.addWidget(self.rec_btn)
-        btn_row.addWidget(self.pause_btn)
+        btn_row.setSpacing(10)
+        btn_row.addWidget(self.pause_btn, 1)
         btn_row.addWidget(quit_btn)
-
-        layout = QVBoxLayout()
-        layout.addWidget(self.time_lbl)
-        layout.addWidget(self.status_lbl)
-        layout.addWidget(self.audio_cb)
-        layout.addLayout(audio_row)
-        layout.addWidget(self.mode_cb)
-        layout.addWidget(self.quality_cb)
-        layout.addLayout(region_row)
-        layout.addLayout(btn_row)
-
-        root = QWidget()
-        root.setLayout(layout)
-        self.setCentralWidget(root)
+        outer.addLayout(btn_row)
 
         self.timer = QTimer(self)
         self.timer.setInterval(500)
