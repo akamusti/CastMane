@@ -91,6 +91,9 @@ class FfmpegX11Recorder:
         ]
         if self.cfg.audio_enabled:
             cmd += ["-c:a", "aac", "-b:a", f"{self.cfg.audio_bitrate_kbps}k"]
+            # Yazilimsal kazanc: 1.0'da filtre eklenmez.
+            if self.cfg.audio_gain != 1.0:
+                cmd += ["-filter:a", f"volume={self.cfg.audio_gain}"]
         cmd += [
             "-movflags", self.cfg.movflags,
             str(tmp),

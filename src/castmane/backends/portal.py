@@ -268,6 +268,13 @@ class PortalRecorder:
             cmd += audio_branch + [
                 "!", "audioconvert",
                 "!", "audioresample",
+            ]
+            # Yazilimsal kazanc: monitor (sistem sesi) girisi genelde
+            # mikrofon girisinden cok daha cılızdır; volume >1.0 ile
+            # dengeleyin (1.0'da oge eklenmez, hat ayni kalir).
+            if self.cfg.audio_gain != 1.0:
+                cmd += ["!", "volume", f"volume={self.cfg.audio_gain}"]
+            cmd += [
                 "!", "queue",
                 "!", "avenc_aac", f"bitrate={self.cfg.audio_bitrate_kbps * 1000}",
                 "!", "aacparse",

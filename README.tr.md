@@ -159,6 +159,12 @@ Cihazları `pactl list short sources` ile listeleyin. Ses, aynı crash-safe
 dosyaya AAC olarak yazılır (Wayland'da `avenc_aac`, X11'de `aac`); `kill -9`
 ile ölen kayıt da MP4 remux da ses parçasını korur.
 
+> **Sistem sesi cılız mı geliyor?** Monitor kaynaklarında mikrofonlardaki
+> gibi giriş yükseltmesi yoktur, o yüzden sistem sesi mikrofon kaydına
+> göre çok daha kısık duyulur. Penceredeki **Ses kazancı (%)** ayarını
+> yükseltin ya da kodla verin (`AppConfig(audio_gain=2.0)` ≈ +6 dB,
+> `3.0` ≈ +9,5 dB). Kırpılma olmaması için `5.0` üstüne çıkmayın.
+
 ## Lisans
 
 GPL-3.0-or-later. Bkz. [LICENSE](LICENSE).

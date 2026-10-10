@@ -159,6 +159,11 @@ List devices with `pactl list short sources`. Audio is encoded as AAC
 (`avenc_aac` on Wayland, `aac` on X11) into the same crash-safe file, so a
 `kill -9` recording and its MP4 remux both keep the audio track.
 
+> **Quiet system sound?** Monitor sources have no mic-style input boost, so
+> system audio can sound much fainter than mic recordings. Raise the gain in
+> the window (**%**) or in code (`AppConfig(audio_gain=2.0)` ≈ +6 dB,
+> `3.0` ≈ +9.5 dB). Stay at or below `5.0` to avoid clipping.
+
 ## License
 
 GPL-3.0-or-later. See [LICENSE](LICENSE).

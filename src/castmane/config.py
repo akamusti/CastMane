@@ -23,6 +23,11 @@ class AppConfig:
     # `pactl list short sources` ile listelenir.
     audio_source: str = "auto"
     audio_bitrate_kbps: int = 128  # AAC ses bitrate'i
+    # Yazilimsal ses kazanci (carpan): 1.0 = %100 (degisiklik yok).
+    # Monitor kaynagi (sistem sesi) mikrofona gore cılız gelirse
+    # yukseltin, örn. 2.0 (~+6 dB) veya 3.0 (~+9.5 dB). 5.0'yi
+    # gecmeyin (kırpılma/distorsiyon riski).
+    audio_gain: float = 1.0
     # Kaynak secimi: "fullscreen" (monitor), "window" (pencere),
     # "ask" (kullanicidan secmesi istenir).
     # Wayland: portal SelectSources `types` bitmask'ine cevrilir

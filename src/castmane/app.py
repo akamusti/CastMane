@@ -40,6 +40,17 @@ class MainWindow(QMainWindow):
         self.audio_cb.setChecked(self.cfg.audio_enabled)
         self.audio_cb.toggled.connect(self._on_audio_toggled)
 
+        audio_row = QHBoxLayout()
+        audio_row.addWidget(QLabel("Ses kazancı:"))
+        self.gain_spin = QSpinBox()
+        self.gain_spin.setPrefix("%")
+        self.gain_spin.setRange(10, 500)
+        self.gain_spin.setSingleStep(10)
+        self.gain_spin.setValue(int(self.cfg.audio_gain * 100))
+        self.gain_spin.valueChanged.connect(self._on_gain_changed)
+        audio_row.addWidget(self.gain_spin)
+        audio_row.addStretch(1)
+
         self.mode_cb = QComboBox()
         self.mode_cb.addItem("Tam Ekran", "fullscreen")
         self.mode_cb.addItem("Pencere", "window")
@@ -78,6 +89,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.time_lbl)
         layout.addWidget(self.status_lbl)
         layout.addWidget(self.audio_cb)
+        layout.addLayout(audio_row)
         layout.addWidget(self.mode_cb)
         layout.addLayout(region_row)
         layout.addLayout(btn_row)
@@ -110,6 +122,7 @@ class MainWindow(QMainWindow):
             self.status_lbl.setText(f"Kaydediliyor -> {tmp.name if tmp else final.name}")
             self.rec_btn.setText("■ Durdur")
             self.audio_cb.setEnabled(False)
+            self.gain_spin.setEnabled(False)
             self.mode_cb.setEnabled(False)
             self._set_region_enabled(False)
             self.timer.start()
@@ -117,6 +130,7 @@ class MainWindow(QMainWindow):
             out = self.rec.stop()
             self.timer.stop()
             self.audio_cb.setEnabled(True)
+            self.gain_spin.setEnabled(True)
             self.mode_cb.setEnabled(True)
             self._set_region_enabled(True)
             if out:
@@ -130,6 +144,14 @@ class MainWindow(QMainWindow):
         # Backend cfg'yi referans tutar; kayit sirasi degisiklik engellenir.
         try:
             self.rec.cfg.audio_enabled = checked
+        except AttributeError:
+            pass
+
+    def _on_gain_changed(self, pct: int) -> None:
+        gain = pct / 100.0
+        self.cfg.audio_gain = gain
+        try:
+            self.rec.cfg.audio_gain = gain
         except AttributeError:
             pass
 
