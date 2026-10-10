@@ -49,6 +49,7 @@ TOOL="packaging/tools/appimagetool-${ARCH}.AppImage"
 if [ ! -x "$TOOL" ]; then
   mkdir -p packaging/tools
   curl -fL -o "$TOOL" "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${ARCH}.AppImage"
+  chmod +x "$TOOL"
 fi
 
 echo "==> [5/5] build $OUT"
