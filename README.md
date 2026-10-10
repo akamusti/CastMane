@@ -58,6 +58,31 @@ instead:
 
 ## Installation
 
+**Easiest: download the AppImage** from the
+[Releases page](https://github.com/akamusti/CastMane/releases), then:
+
+```bash
+chmod +x CastMane-*.AppImage
+./CastMane-*.AppImage
+```
+
+No Python, venv, or pip setup needed: the AppImage bundles Python, Qt,
+and all PyPI dependencies. You only need the host multimedia tools
+(Fedora: `sudo dnf install ffmpeg gstreamer1 gstreamer1-plugins-base
+gstreamer1-plugins-good gstreamer1-plugin-openh264`; Ubuntu: `sudo apt
+install ffmpeg gstreamer1.0-tools gstreamer1.0-plugins-base
+gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly`) plus a running
+`xdg-desktop-portal` with a ScreenCast backend — the app shows a
+friendly popup if anything is missing.
+
+To build the AppImage yourself:
+
+```bash
+./packaging/build-appimage.sh
+```
+
+From source (developers):
+
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .

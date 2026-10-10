@@ -1,10 +1,13 @@
 __pycache__/
 *.pyc
 .venv/
+.venv-appimage/
 venv/
 *.egg-info/
 dist/
 build/
+AppDir/
+*.AppImage
 # crash-safe recordings: partial chunks are kept locally, only final .mp4 matters
 *.part
 Videos/

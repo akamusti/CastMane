@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=CastMane
+GenericName=Screen Recorder
+Comment=Crash-safe screen recorder for Linux (Wayland-first)
+Exec=castmane
+Icon=castmane
+Categories=AudioVideo;Recorder;Video;
+Terminal=false
+StartupWMClass=CastMane
+X-AppImage-Version=0.1.0

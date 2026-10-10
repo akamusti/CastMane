@@ -58,6 +58,30 @@ CastMane bunun yerine:
 
 ## Kurulum
 
+**En kolayı: AppImage indirin** —
+[Sürümler sayfası](https://github.com/akamusti/CastMane/releases), sonra:
+
+```bash
+chmod +x CastMane-*.AppImage
+./CastMane-*.AppImage
+```
+
+Python, venv ya da pip kurulumu gerekmez: AppImage Python, Qt ve tüm
+PyPI bağımlılıklarını içinde getirir. Sadece sistemin multimedya
+araçları gerekir (`sudo dnf install ffmpeg gstreamer1
+gstreamer1-plugins-base gstreamer1-plugins-good
+gstreamer1-plugin-openh264`) ve ScreenCast destekli çalışan bir
+`xdg-desktop-portal` — bir şey eksikse uygulama anlaşılır bir pencereyle
+söyler.
+
+AppImage'ı kendiniz üretmek için:
+
+```bash
+./packaging/build-appimage.sh
+```
+
+Kaynaktan kurulum (geliştiriciler):
+
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .

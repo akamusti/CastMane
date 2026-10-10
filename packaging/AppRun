@@ -1,0 +1,28 @@
+#!/bin/sh
+# AppImage entry point: friendly check for host multimedia tools,
+# then launch the bundled PyInstaller app.
+# ffmpeg/gst-launch/portal stay on the host on purpose: a portal-based
+# recorder must talk to the host PipeWire + xdg-desktop-portal, and
+# bundling a second GStreamer inside the image breaks that bridge.
+HERE="$(dirname "$(readlink -f "$0")")"
+APP="$HERE/usr/bin/castmane/castmane"
+
+missing=""
+command -v ffmpeg >/dev/null 2>&1 || missing="$missing ffmpeg"
+command -v gst-launch-1.0 >/dev/null 2>&1 || missing="$missing gst-launch-1.0"
+
+if [ -n "$missing" ]; then
+  msg="CastMane needs the following host tools:$missing
+
+Fedora:  sudo dnf install ffmpeg gstreamer1 gstreamer1-plugins-base gstreamer1-plugins-good gstreamer1-plugin-openh264
+Ubuntu:  sudo apt install ffmpeg gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly"
+  if command -v zenity >/dev/null 2>&1; then
+    zenity --error --title="CastMane" --text="$msg" 2>/dev/null
+  elif command -v kdialog >/dev/null 2>&1; then
+    kdialog --error "$msg" 2>/dev/null
+  else
+    echo "$msg" >&2
+  fi
+fi
+
+exec "$APP" "$@"
