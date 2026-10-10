@@ -1,86 +1,97 @@
-# CastMane
+<p align="center">
+  <img src="src/castmane/assets/logo.png" alt="CastMane logosu" width="128" />
+</p>
 
-**Linux için crash-safe ekran kaydedici (Wayland öncelikli).**
+<h1 align="center">CastMane</h1>
 
-[🇬🇧 Click for English](README.md)
+<p align="center">
+  <strong>Linux için crash-safe ekran kaydedici (Wayland öncelikli).</strong><br />
+  Uygulama kaydın ortasında çökse bile görüntünüz kaybolmaz.
+</p>
 
-OBS güçlüdür — ama kayıt sırasında crash verirse tüm `.mp4` dosyası çoğu zaman
-çöp olur. CastMane tek bir ilke üzerine kurulu: **crash, görüntüyü götürmemeli.**
+<p align="center">
+  <a href="https://github.com/akamusti/CastMane/releases"><img src="https://img.shields.io/github/v/release/akamusti/CastMane" alt="Son sürüm" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="Lisans" /></a>
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20Wayland%20%7C%20X11-lightgrey" alt="Platform" />
+  <img src="https://img.shields.io/badge/python-%3E%3D3.10-green" alt="Python" />
+</p>
 
-## Neden CastMane?
+<p align="center">
+  <a href="README.md">🇬🇧 Click for English</a>
+</p>
 
-Klasik kaydediciler MP4 kapsayıcısını (`moov` atomu) ancak kayıt düzgün
-biterse yazar. Process crash yerse ya da kill edilirse dosya oynatılamaz.
-CastMane bunun yerine:
+Çoğu kaydedici `.mp4` dizinini (`moov` atomu) yalnızca düzgün kapatmada
+yazar — uygulama kaydın ortasında çökerse tüm dosya çoğu zaman kaybolur.
+CastMane tek bir ilke üzerine kurulu: **çöküş, görüntüye mal olmamalı.**
 
-1. Kaydı **crash'e dayanıklı kapsayıcıda** biriktirir — X11'de parçalı MP4
-   (`frag_keyframe+empty_moov`), Wayland'da MKV (`matroskamux`; PipeWire'ın
-   verdiği damgasız ilk kareyi tolere eder) — dosyanın her parçası tek başına
-   oynatılabilir, sonra MP4 teslim edilir.
-2. Kaydı **`.part` dosyasına** yapar, düzgün stop sonrası **atomik rename** ile
-   finale taşır. Yarım kalan `.part` dosyası yine izlenebilir.
-3. Encoder'ı **nazikçe durdurur** (önce `SIGINT`, trailer yazılsın diye) ve
-   encoder process'ini izler; beklenmedik ölüm sessizce geçiştirilmez, raporlanır.
+> Doğrulandı: `kill -9` ile öldürülen bir kayıt tamamen oynatılabilir kalıyor
+> (`h264`, `ffprobe` ile denetlendi). Bkz. [Crash-güvenliği](#crash-güvenliği).
 
-> Kanıtlandı: `kill -9` ile öldürülen kayıt tamamen oynatılabilir kalıyor
-> (`h264`, `ffprobe` ile doğrulandı). Wayland hattı MKV kaydeder, çünkü
-> PipeWire'ın verdiği damgasız ilk karede `mp4mux` "Buffer has no PTS" diye
-> ölür; MKV duruşta `ffmpeg -c copy` ile MP4'e çevrilir.
-> Detay için [Crash-güvenliği](#crash-güvenliği).
+## Hızlı başlangıç
 
-## Özellikler
-
-- 🖥️ **Wayland**'da tam ekran kayıt: `xdg-desktop-portal` ScreenCast +
-  GStreamer (`pipewiresrc → openh264enc → matroskamux`), duruşta kayıpsız
-  MP4 remux — OBS yok, eklenti yok
-- 🖥️ **X11 yedeği**: `ffmpeg` (`x11grab`), otomatik seçilir
-- 🛡️ Crash-safe çıktı hattı (parçalı MP4, `.part` staging, atomik rename,
-  encoder izcisi)
-- 🪶 Sade Qt arayüzü: Kayıt / Durdur / Duraklat, süre, durum satırı
-- ⏸️ Duraklat / devam et (encoder dondurulur, duraklatılan süre sayılmaz) ve
-  kalite ön ayarları: Taslak (24 fps, 4 Mbps), Dengeli (30 fps, 8 Mbps),
-  Yüksek (60 fps, 16 Mbps)
-- 🪟 Kayıt kaynağı seçimi: tam ekran, tek pencere ya da her seferinde sor
-  (Wayland: portal diyafonu; X11: sabit bölge, pencere kimliği ya da sürükle-seç)
-- 🔊 İsteğe bağlı ses kaydı (varsayılan mikrofon, monitor cihazıyla sistem sesi),
-  aynı crash-safe MKV → MP4 hattında AAC
-- 📁 `~/Videos/CastMane` altında zaman damgalı dosyalar
-  (`castmane_YYYY-AA-GG_SS-DD-SS.mp4`)
-
-## Gereksinimler
-
-- Linux, Python ≥ 3.10 (**Fedora 44, KDE Plasma, Wayland**'de geliştirildi ve test edildi)
-- `ffmpeg` — X11 backend için
-- `pipewiresrc`, `openh264enc` ve `mp4mux` öğeleriyle `gst-launch-1.0` —
-  Wayland backend için (Fedora KDE'de hazır gelir;
-  `gst-inspect-1.0 pipewiresrc` ile kontrol edin)
-- ScreenCast destekli çalışan bir `xdg-desktop-portal` (KDE/GNOME sağlar)
-
-## Kurulum
-
-**En kolayı: AppImage indirin** —
-[Sürümler sayfası](https://github.com/akamusti/CastMane/releases), sonra:
+[Sürümler sayfasından](https://github.com/akamusti/CastMane/releases)
+AppImage'i indirin, sonra:
 
 ```bash
 chmod +x CastMane-*.AppImage
 ./CastMane-*.AppImage
 ```
 
-Python, venv ya da pip kurulumu gerekmez: AppImage Python, Qt ve tüm
-PyPI bağımlılıklarını içinde getirir. Sadece sistemin multimedya
-araçları gerekir (`sudo dnf install ffmpeg gstreamer1
-gstreamer1-plugins-base gstreamer1-plugins-good
-gstreamer1-plugin-openh264`) ve ScreenCast destekli çalışan bir
-`xdg-desktop-portal` — bir şey eksikse uygulama anlaşılır bir pencereyle
-söyler.
+Hepsi bu — Python, venv ya da pip kurulumu gerekmez. AppImage Python, Qt
+ve tüm PyPI bağımlılıklarını içinde getirir.
 
-AppImage'ı kendiniz üretmek için:
+## Özellikler
+
+| Alan | Yetenek |
+|---|---|
+| Tam ekran | `xdg-desktop-portal` ScreenCast + GStreamer ile yerel Wayland yakalama, duruşta kayıpsız MP4 remux |
+| X11 yedeği | `ffmpeg` (`x11grab`) backend'i, otomatik seçilir |
+| Crash-safe | Parçalı kapsayıcı, `.part` staging, atomik rename, nazik kapatma, encoder izcisi |
+| Sade arayüz | Kayıt / Durdur / Duraklat, geçen süre, durum satırı |
+| Duraklatma ve kalite | Çekimin ortasında encoder'ı dondurun; Taslak / Dengeli / Yüksek ön ayarları |
+| Kaynak seçimi | Tam ekran, tek pencere ya da her seferinde sor |
+| Ses | Yazılımsal kazançlı, isteğe bağlı mikrofon veya sistem sesi kaydı (AAC) |
+| Çıktı | `~/Videos/CastMane` altında zaman damgalı `castmane_YYYY-MM-DD_HH-MM-SS.mp4` dosyaları |
+
+## Gereksinimler
+
+| Bileşen | Wayland backend'i | X11 backend'i |
+|---|---|---|
+| İşletim sistemi | Linux, Python >= 3.10 | Linux, Python >= 3.10 |
+| Video hattı | `pipewiresrc`, `openh264enc`, `matroskamux` içeren `gst-launch-1.0` | `x11grab` içeren `ffmpeg` |
+| Sistem servisi | ScreenCast destekli `xdg-desktop-portal` (KDE/GNOME sağlar) | — |
+| Ses (isteğe bağlı) | Pulse/PipeWire kaynağı (`pactl list short sources`) | Pulse kaynağı |
+
+Host araçlarını kurun (geri kalan her şeyi AppImage içinde getirir):
+
+```bash
+# Fedora / KDE (Fedora 44, KDE Plasma, Wayland'de test edildi)
+sudo dnf install ffmpeg gstreamer1 gstreamer1-plugins-base gstreamer1-plugins-good gstreamer1-plugin-openh264
+
+# Ubuntu / Debian
+sudo apt install ffmpeg gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly
+```
+
+Bir şey mi eksik? Uygulama neyi kurmanız gerektiğini söyleyen anlaşılır
+bir pencere gösterir.
+
+## Kurulum
+
+### Seçenek 1 — AppImage (önerilen)
+
+```bash
+chmod +x CastMane-*.AppImage
+./CastMane-*.AppImage
+```
+
+### Seçenek 2 — AppImage'i kendiniz derleyin
 
 ```bash
 ./packaging/build-appimage.sh
+./dist/CastMane-*.AppImage
 ```
 
-Kaynaktan kurulum (geliştiriciler):
+### Seçenek 3 — Kaynaktan (geliştiriciler)
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
@@ -88,37 +99,39 @@ pip install -e .
 python3 -m castmane
 ```
 
-Sistem Python paketi ya da derleyici gerekmez: Wayland backend portalla
-D-Bus üzerinden (`dbus-next`) konuşur ve GStreamer'ı alt proses olarak
+Sistem Python paketi ya da derleyici gerekmez: Wayland backend'i portalı
+D-Bus üzerinden (`dbus-next`) sürer ve GStreamer'ı alt proses olarak
 çalıştırır, bu yüzden `PyGObject` gerekmez.
 
 ## Kullanım
 
-1. Uygulamayı başlatın. Durum satırı aktif backend'i gösterir, örn.
-   `Hazir [portal (Wayland)]`.
-2. Kaynak seçin: **Tam Ekran**, **Pencere** ya da **Sor / Bölge Seç**.
-   Wayland'da sistem diyafonu monitör ya da pencere listeler; X11'de *Sor*
-   fareyle çerçeve çizdirir, sabit bölgeyi X/Y/W/H ile de verebilirsiniz
-   (`0` = tam ekran).
-3. **Kayda Basla**'ya tıklayın. Wayland'da sistemin ekran paylaşım diyafonu
-   açılır — ekranı ya da pencereyi seçip onaylayın (180 saniye süreniz var).
-4. **Durdur**'a basın. Bitmiş dosya `~/Videos/CastMane` altındadır.
+1. **Uygulamayı başlatın.** Durum satırı aktif backend'i gösterir, örn.
+   `Hazır [portal (Wayland)]`.
+2. **Kaynak seçin:** Tam Ekran, Pencere ya da Sor / Bölge Seç.
+   Wayland'da sistem diyafonu monitörleri veya pencereleri listeler; X11'de
+   *Sor* sürükle-seç çerçevesi açar.
+3. **Kayda basın.** Wayland'da sistemin ekran paylaşım diyafonu açılır —
+   monitörü ya da pencereyi seçip onaylayın (180 saniye süreniz var).
+4. **Durdur'a basın.** Bitmiş dosya `~/Videos/CastMane` altındadır.
 
-Kayıt yarıda kesilirse (crash, elektrik kesintisi, `kill -9`) aynı klasördeki
-`*.mkv.part` (Wayland) ya da `*.mp4.part` (X11) dosyasına bakın — aynen oynatılır.
-Yeniden adlandırmanız yeterli (Wayland'da isterseniz MP4'e çevirin:
+**Yarıda kesilen kaydı kurtarma:** aynı klasördeki `*.mkv.part` (Wayland)
+ya da `*.mp4.part` (X11) dosyasına bakın — aynen oynatılır. Yeniden
+adlandırmanız yeterli (Wayland'da isterseniz MP4'e kendiniz çevirin:
 `ffmpeg -i dosya.mkv.part -c copy dosya.mp4`).
 
 ## Crash-güvenliği
 
 | Katman | Mekanizma |
 |---|---|
-| Kapsayıcı | MKV staging (`matroskamux` eksik damgaları tolere eder), düzgün stop'ta kayıpsız `ffmpeg -c copy` ile MP4 |
-| Dosya taşıma | `X.mp4.part` dosyasına yaz, düzgün stop'ta `os.replace()` ile `X.mp4` yap |
-| Kapatma | `SIGINT` → bekle → `SIGTERM` → `SIGKILL` kademesi |
+| Kapsayıcı | MKV staging (`matroskamux` eksik damgaları tolere eder), düzgün duruşta kayıpsız `ffmpeg -c copy` ile MP4 |
+| Dosya taşıma | `X.mp4.part` dosyasına yaz, düzgün duruşta `os.replace()` ile `X.mp4` yap |
+| Kapatma | `SIGINT` -> bekle -> `SIGTERM` -> `SIGKILL` kademesi |
 | İzleme | Encoder izcisi erken ölümleri son log satırlarıyla raporlar |
 
-Kanıtı kendiniz tekrarlayın (canlı MKV kaydını öldürüp remux edin):
+<details>
+<summary>Kanıtı kendiniz tekrarlayın</summary>
+
+Canlı bir MKV kaydını öldürüp remux edin:
 
 ```bash
 gst-launch-1.0 videotestsrc is-live=true ! videoconvert ! openh264enc \
@@ -129,36 +142,17 @@ ffmpeg -y -v error -i kanit.mkv.part -c copy kanit.mp4
 ffprobe -v error -show_entries stream=codec_name,duration kanit.mp4
 ```
 
-## Mimari
+</details>
 
-```
-src/castmane/
-├── app.py               # Qt ana pencere (Kayıt/Durdur, süre, durum)
-├── config.py            # Çıktı dizini, fps, bitrate, parça ayarları
-├── recorder.py          # Crash-safe çekirdek: FfmpegX11Recorder + finalize_part()
-├── backends/__init__.py # create_backend(): Wayland'da portal, X11'de ffmpeg
-└── backends/portal.py   # PortalRecorder: ScreenCast D-Bus + gst-launch hattı
-                           (MKV kayıt, duruşta MP4 remux)
-```
+## Yapılandırma
 
-Portal imzaları çalışma anında broker'dan okunur (`session_handle` tipi,
-`Start` parametre sırası), böylece istemci farklı `xdg-desktop-portal`
-sürümlerinde çalışmaya devam eder.
+<details>
+<summary><strong>Duraklatma ve kalite ön ayarları</strong></summary>
 
-## Yol haritası
-
-- [x] Tam ekran kaydı (Wayland + X11)
-- [x] Crash-safe çıktı hattı
-- [x] Ses kaydı (varsayılan mikrofon; `audio_source` monitor cihazıyla sistem sesi)
-- [x] Pencere / bölge seçimi
-- [x] Duraklat / devam et, kalite ön ayarları
-
-### Duraklatma ve kalite
-
-Kayıt sırasında **⏸ Duraklat** encoder'ı dondurur (`SIGSTOP`); süre
-işlemez ve duraklatılan aralık görüntüye girmez. **▶ Sürdür** aynı
-dosyaya devam eder. Duraklatılmışken durdurma yapılırsa önce sürdürme
-yapılır, böylece trailer her zaman temiz yazılır.
+Kayıt sırasında **Duraklat**'a basarak encoder'ı dondurun (`SIGSTOP`); süre
+durur ve duraklatılan aralık görüntüye girmez. **Sürdür** aynı dosyaya devam
+eder. Duraklatılmışken durdurma yapılırsa önce sürdürme yapılır, böylece
+trailer her zaman temiz yazılır.
 
 ```python
 from castmane.config import AppConfig
@@ -166,7 +160,16 @@ cfg = AppConfig()
 cfg.apply_quality_preset("high")  # "draft" | "balanced" | "high"
 ```
 
-### Kayıt kaynağı
+| Ön ayar | fps | Bit hızı |
+|---|---|---|
+| Taslak | 24 | 4 Mbps |
+| Dengeli | 30 | 8 Mbps |
+| Yüksek | 60 | 16 Mbps |
+
+</details>
+
+<details>
+<summary><strong>Yakalama kaynağı</strong></summary>
 
 ```python
 from castmane.config import AppConfig
@@ -177,15 +180,18 @@ cfg = AppConfig(capture_mode="window")  # "fullscreen" | "window" | "ask"
 # cfg = AppConfig(capture_mode="window", window_id=123456)
 ```
 
-Wayland'da `window` / `ask` portal diyafonunu monitörden pencereye
-çevirir (ya da ikisini birden sorar). X11'de `ask` fareyle bölge
-seçtirir (`ffmpeg -select_region`), `region_*` / `window_id` ise
-betiklenebilir kontrol verir. Crash-güvenliği değişmez: pencere ve
-bölge kayıtları da `.part` + atomik rename hattından geçer.
+Wayland'da `window` / `ask` portal diyafonunu monitörden pencereye çevirir
+(ya da ikisini birden sorar). X11'de `ask` fareyle bölge seçtirir
+(`ffmpeg -select_region`), `region_*` / `window_id` ise betiklenebilir kontrol
+verir. Crash-güvenliği değişmez: pencere ve bölge kayıtları da `.part` +
+atomik rename hattından geçer.
 
-### Ses
+</details>
 
-Penceredeki **Sesli kaydet (mikrofon)** kutusunu işaretleyin ya da kodla:
+<details>
+<summary><strong>Ses</strong></summary>
+
+Penceredeki **Sesli kaydet (mikrofon)** kutusunu işaretleyin ya da kodla verin:
 
 ```python
 from castmane.config import AppConfig
@@ -199,11 +205,44 @@ Cihazları `pactl list short sources` ile listeleyin. Ses, aynı crash-safe
 dosyaya AAC olarak yazılır (Wayland'da `avenc_aac`, X11'de `aac`); `kill -9`
 ile ölen kayıt da MP4 remux da ses parçasını korur.
 
-> **Sistem sesi cılız mı geliyor?** Monitor kaynaklarında mikrofonlardaki
-> gibi giriş yükseltmesi yoktur, o yüzden sistem sesi mikrofon kaydına
-> göre çok daha kısık duyulur. Penceredeki **Ses kazancı (%)** ayarını
-> yükseltin ya da kodla verin (`AppConfig(audio_gain=2.0)` ≈ +6 dB,
-> `3.0` ≈ +9,5 dB). Kırpılma olmaması için `5.0` üstüne çıkmayın.
+> **Sistem sesi cılız mı geliyor?** Monitor kaynaklarında mikrofonlardaki gibi
+> giriş yükseltmesi yoktur, o yüzden sistem sesi mikrofon kaydına göre çok
+> daha kısık duyulur. Penceredeki **Ses kazancı (%)** ayarını yükseltin ya da
+> kodla verin (`AppConfig(audio_gain=2.0)` ≈ +6 dB, `3.0` ≈ +9,5 dB).
+> Kırpılma olmaması için `5.0` üstüne çıkmayın.
+
+</details>
+
+## Mimari
+
+```
+src/castmane/
+|-- app.py               # Qt ana pencere (Kayıt/Durdur, süre, durum)
+|__ config.py            # Çıktı dizini, fps, bit hızı, parça ayarları
++-- recorder.py          # Crash-safe çekirdek: FfmpegX11Recorder + finalize_part()
++-- backends/__init__.py # create_backend(): Wayland'da portal, X11'de ffmpeg
+`-- backends/portal.py   # PortalRecorder: ScreenCast D-Bus + gst-launch hattı
+                           (MKV kayıt, duruşta MP4 remux)
+```
+
+Portal imzaları çalışma anında broker'dan okunur (`session_handle` tipi,
+`Start` parametre sırası), böylece istemci farklı `xdg-desktop-portal`
+sürümlerinde çalışmaya devam eder.
+
+## Yol haritası
+
+- [x] Tam ekran kaydı (Wayland + X11)
+- [x] Crash-safe çıktı hattı
+- [x] Ses kaydı (varsayılan mikrofon; `audio_source` monitor cihazıyla sistem sesi)
+- [x] Pencere / bölge seçimi
+- [x] Duraklat / devam et, yapılandırılabilir kalite ön ayarları
+- [x] Tek dosyalık AppImage dağıtımı
+
+## Katkıda bulunma
+
+Issue ve pull request'lere açığız. Kayıp ya da bozuk görüntüyle ilgili hata
+bildirimlerine lütfen kayıtla ilgili test kanıtını ekleyin (`ffprobe`
+çıktısı, tekrarlama adımları) — crash-güvenliği bu uygulamanın varlık nedeni.
 
 ## Lisans
 

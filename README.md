@@ -20,9 +20,9 @@
   <a href="README.tr.md">🇹🇷 Türkçe için tıklayın</a>
 </p>
 
-OBS is powerful, but if it crashes mid-recording, the whole `.mp4` file is
-often lost. CastMane is built around a single principle: **a crash must never
-cost you the footage.**
+Many recorders write the `.mp4` index only on clean shutdown — if the app
+crashes mid-recording, the whole file is often lost. CastMane is built
+around a single principle: **a crash must never cost you the footage.**
 
 > Verified: a recording killed with `kill -9` remains fully playable
 > (`h264`, `ffprobe`-checked). See [Crash-safety](#crash-safety).
