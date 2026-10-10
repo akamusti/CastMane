@@ -114,6 +114,12 @@ D-Bus üzerinden (`dbus-next`) sürer ve GStreamer'ı alt proses olarak
    monitörü ya da pencereyi seçip onaylayın (180 saniye süreniz var).
 4. **Durdur'a basın.** Bitmiş dosya `~/Videos/CastMane` altındadır.
 
+## Dil
+
+Arayüz varsayılan olarak İngilizcedir. Türkçeye geçmek için Kayıt
+Ayarları'ndaki **Dil** menüsünden **Türkçe**'yi seçin.
+Kod ile: `AppConfig(language="tr")`.
+
 **Yarıda kesilen kaydı kurtarma:** aynı klasördeki `*.mkv.part` (Wayland)
 ya da `*.mp4.part` (X11) dosyasına bakın — aynen oynatılır. Yeniden
 adlandırmanız yeterli (Wayland'da isterseniz MP4'e kendiniz çevirin:

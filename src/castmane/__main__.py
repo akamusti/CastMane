@@ -1,4 +1,4 @@
-"""python -m castmane / castmane komutu girisi."""
+"""Entry point for `python -m castmane` / the `castmane` command."""
 from __future__ import annotations
 
 import sys

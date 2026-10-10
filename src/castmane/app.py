@@ -1,4 +1,4 @@
-"""Qt ana pencere - Rec/Stop + sure + durum."""
+"""Qt main window - Rec/Stop + timer + status."""
 from __future__ import annotations
 
 from PySide6.QtCore import QTimer, Qt
@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from .backends import create_backend, session_is_wayland
 from .config import AppConfig
+from .i18n import SUPPORTED_LANGUAGES, get as _get, normalize
 from .theme import (
     ACCENT_CYAN,
     ACCENT_GRADIENT,
@@ -195,9 +196,11 @@ QCheckBox:disabled {{
 }}
 """
 
+LANGUAGE_LABELS = {"en": "English", "tr": "Türkçe"}
+
 
 def _section_header(text: str) -> QWidget:
-    """Kart basligi: ince renk cubugu + kucuk harf etiketi."""
+    """Card title: thin accent bar + small-caps label."""
     box = QWidget()
     row = QHBoxLayout(box)
     row.setContentsMargins(0, 0, 0, 0)
@@ -230,6 +233,7 @@ class MainWindow(QMainWindow):
     def __init__(self, cfg: AppConfig | None = None) -> None:
         super().__init__()
         self.cfg = cfg or AppConfig()
+        self.cfg.language = normalize(self.cfg.language)
         self.rec = create_backend(self.cfg)
         self.setWindowTitle("CastMane")
         self.resize(460, 640)
@@ -252,7 +256,7 @@ class MainWindow(QMainWindow):
         outer.setContentsMargins(16, 16, 16, 16)
         outer.setSpacing(10)
 
-        # --- Marka satiri: logo + isim ---
+        # --- Brand row: logo + name ---
         brand = QWidget()
         brand.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         brand_row = QHBoxLayout(brand)
@@ -270,17 +274,17 @@ class MainWindow(QMainWindow):
         brand_title = QLabel("CastMane")
         brand_title.setObjectName("BrandTitle")
         brand_title.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        brand_sub = QLabel("Crash-safe screen recorder")
-        brand_sub.setObjectName("BrandSubtitle")
-        brand_sub.setWordWrap(True)
-        brand_sub.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.brand_sub = QLabel()
+        self.brand_sub.setObjectName("BrandSubtitle")
+        self.brand_sub.setWordWrap(True)
+        self.brand_sub.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         brand_text.addWidget(brand_title)
-        brand_text.addWidget(brand_sub)
+        brand_text.addWidget(self.brand_sub)
         brand_row.addWidget(self.logo_lbl)
         brand_row.addLayout(brand_text, 1)
         outer.addWidget(brand)
 
-        # --- Ust kart: kronometre + durum ---
+        # --- Top card: timer + status ---
         self.time_lbl = QLabel("00:00")
         self.time_lbl.setObjectName("TimeLabel")
         self.time_lbl.setAlignment(Qt.AlignCenter)
@@ -288,7 +292,7 @@ class MainWindow(QMainWindow):
         self.time_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.time_lbl.setMinimumWidth(0)
 
-        self.status_lbl = QLabel(f"Hazir [{self.rec.name}]. Cikti: ~/Videos/CastMane")
+        self.status_lbl = QLabel()
         self.status_lbl.setObjectName("StatusLabel")
         self.status_lbl.setAlignment(Qt.AlignCenter)
         self.status_lbl.setWordWrap(True)
@@ -304,8 +308,8 @@ class MainWindow(QMainWindow):
         top_layout.addWidget(self.status_lbl)
         outer.addWidget(top)
 
-        # --- Kayit butonu ---
-        self.rec_btn = QPushButton("● Kayda Başla")
+        # --- Record button ---
+        self.rec_btn = QPushButton()
         self.rec_btn.setObjectName("RecordButton")
         self.rec_btn.setProperty("recording", False)
         self.rec_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -314,25 +318,21 @@ class MainWindow(QMainWindow):
         self.rec_btn.clicked.connect(self.toggle)
         outer.addWidget(self.rec_btn)
 
-        # --- Kaynak ve kalite karti ---
+        # --- Source & quality card ---
         self.mode_cb = QComboBox()
-        self.mode_cb.addItem("Tam Ekran", "fullscreen")
-        self.mode_cb.addItem("Pencere", "window")
-        self.mode_cb.addItem("Sor / Bölge Seç", "ask")
-        idx = self.mode_cb.findData(self.cfg.capture_mode)
-        if idx >= 0:
-            self.mode_cb.setCurrentIndex(idx)
         self.mode_cb.currentIndexChanged.connect(self._on_mode_changed)
 
         self.quality_cb = QComboBox()
-        self.quality_cb.addItem("Taslak (hafif)", "draft")
-        self.quality_cb.addItem("Dengeli", "balanced")
-        self.quality_cb.addItem("Yüksek", "high")
-        idx = self.quality_cb.findData(self.cfg.quality_preset)
-        if idx >= 0:
-            self.quality_cb.setCurrentIndex(idx)
         self.quality_cb.currentIndexChanged.connect(self._on_quality_changed)
-        for cb in (self.mode_cb, self.quality_cb):
+
+        self.lang_cb = QComboBox()
+        for code in SUPPORTED_LANGUAGES:
+            self.lang_cb.addItem(LANGUAGE_LABELS[code], code)
+        self.lang_cb.setCurrentIndex(
+            SUPPORTED_LANGUAGES.index(self.cfg.language)
+        )
+        self.lang_cb.currentIndexChanged.connect(self._on_language_changed)
+        for cb in (self.mode_cb, self.quality_cb, self.lang_cb):
             cb.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             cb.setMinimumWidth(0)
             cb.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
@@ -347,28 +347,33 @@ class MainWindow(QMainWindow):
         src_layout.setColumnStretch(0, 0)
         src_layout.setColumnStretch(1, 1)
 
-        src_layout.addWidget(_section_header("KAYIT AYARLARI"), 0, 0, 1, 2)
+        self.src_header = _section_header("")
+        src_layout.addWidget(self.src_header, 0, 0, 1, 2)
         src_layout.addWidget(_separator(), 1, 0, 1, 2)
-        lbl_src = _field_label("Kaynak:")
-        lbl_src.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        src_layout.addWidget(lbl_src, 2, 0)
+        self.lbl_src = _field_label("")
+        self.lbl_src.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        src_layout.addWidget(self.lbl_src, 2, 0)
         src_layout.addWidget(self.mode_cb, 2, 1)
-        lbl_q = _field_label("Kalite:")
-        lbl_q.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        src_layout.addWidget(lbl_q, 3, 0)
+        self.lbl_q = _field_label("")
+        self.lbl_q.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        src_layout.addWidget(self.lbl_q, 3, 0)
         src_layout.addWidget(self.quality_cb, 3, 1)
+        self.lbl_lang = _field_label("")
+        self.lbl_lang.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        src_layout.addWidget(self.lbl_lang, 4, 0)
+        src_layout.addWidget(self.lang_cb, 4, 1)
         outer.addWidget(src_card)
 
-        # --- Ses karti ---
-        self.audio_cb = QCheckBox("Sesli kaydet (mikrofon)")
+        # --- Audio card ---
+        self.audio_cb = QCheckBox()
         self.audio_cb.setChecked(self.cfg.audio_enabled)
         self.audio_cb.toggled.connect(self._on_audio_toggled)
 
         audio_row = QHBoxLayout()
         audio_row.setSpacing(10)
-        lbl_gain = _field_label("Ses kazancı:")
-        lbl_gain.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        audio_row.addWidget(lbl_gain)
+        self.lbl_gain = _field_label("")
+        self.lbl_gain.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        audio_row.addWidget(self.lbl_gain)
         self.gain_spin = QSpinBox()
         self.gain_spin.setPrefix("%")
         self.gain_spin.setRange(10, 500)
@@ -386,13 +391,14 @@ class MainWindow(QMainWindow):
         audio_layout = QVBoxLayout(audio_card)
         audio_layout.setContentsMargins(18, 16, 18, 18)
         audio_layout.setSpacing(8)
-        audio_layout.addWidget(_section_header("SES"))
+        self.audio_header = _section_header("")
+        audio_layout.addWidget(self.audio_header)
         audio_layout.addWidget(_separator())
         audio_layout.addWidget(self.audio_cb)
         audio_layout.addLayout(audio_row)
         outer.addWidget(audio_card)
 
-        # --- X11 sabit bolge karti: dar pencerede 2x2'ye sarilir. ---
+        # --- X11 fixed-region card: wraps 2x2 in narrow windows. ---
         self.region_spins: dict[str, QSpinBox] = {}
         region_grid = QGridLayout()
         region_grid.setSpacing(8)
@@ -415,9 +421,9 @@ class MainWindow(QMainWindow):
             self.region_spins[key] = spin
             region_grid.addWidget(spin, i // 2, i % 2)
 
-        region_hint = QLabel("Boş/0 değerler tam ekran demektir")
-        region_hint.setObjectName("OutputLabel")
-        region_hint.setWordWrap(True)
+        self.region_hint = QLabel()
+        self.region_hint.setObjectName("OutputLabel")
+        self.region_hint.setWordWrap(True)
 
         region_card = QFrame()
         region_card.setObjectName("Card")
@@ -425,42 +431,41 @@ class MainWindow(QMainWindow):
         region_layout = QVBoxLayout(region_card)
         region_layout.setContentsMargins(18, 16, 18, 18)
         region_layout.setSpacing(8)
-        region_layout.addWidget(_section_header("BÖLGE"))
+        self.region_header = _section_header("")
+        region_layout.addWidget(self.region_header)
         region_layout.addWidget(_separator())
-        lbl_region = _field_label("Bölge (X11):")
-        region_layout.addWidget(lbl_region)
+        self.lbl_region = _field_label("")
+        region_layout.addWidget(self.lbl_region)
         region_layout.addLayout(region_grid)
-        region_layout.addWidget(region_hint)
+        region_layout.addWidget(self.region_hint)
         outer.addWidget(region_card)
 
-        outcome_lbl = QLabel(
-            "Dosyalar ~/Videos/CastMane içine zaman damgasıyla kaydedilir"
-        )
-        outcome_lbl.setObjectName("OutputLabel")
-        outcome_lbl.setAlignment(Qt.AlignCenter)
-        outcome_lbl.setWordWrap(True)
-        outcome_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        outer.addWidget(outcome_lbl)
+        self.outcome_lbl = QLabel()
+        self.outcome_lbl.setObjectName("OutputLabel")
+        self.outcome_lbl.setAlignment(Qt.AlignCenter)
+        self.outcome_lbl.setWordWrap(True)
+        self.outcome_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        outer.addWidget(self.outcome_lbl)
 
-        # --- Alt butonlar ---
-        self.pause_btn = QPushButton("⏸ Duraklat")
+        # --- Bottom buttons ---
+        self.pause_btn = QPushButton()
         self.pause_btn.setEnabled(False)
         self.pause_btn.setCursor(Qt.PointingHandCursor)
         self.pause_btn.clicked.connect(self.toggle_pause)
         self.pause_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.pause_btn.setMinimumWidth(0)
 
-        quit_btn = QPushButton("Çıkış")
-        quit_btn.setObjectName("QuitButton")
-        quit_btn.setCursor(Qt.PointingHandCursor)
-        quit_btn.clicked.connect(self.close)
-        quit_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        quit_btn.setMinimumWidth(0)
+        self.quit_btn = QPushButton()
+        self.quit_btn.setObjectName("QuitButton")
+        self.quit_btn.setCursor(Qt.PointingHandCursor)
+        self.quit_btn.clicked.connect(self.close)
+        self.quit_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.quit_btn.setMinimumWidth(0)
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
         btn_row.addWidget(self.pause_btn, 1)
-        btn_row.addWidget(quit_btn, 0)
+        btn_row.addWidget(self.quit_btn, 0)
         outer.addLayout(btn_row)
         outer.addStretch(1)
 
@@ -468,14 +473,91 @@ class MainWindow(QMainWindow):
         self.timer.setInterval(500)
         self.timer.timeout.connect(self.tick)
 
-        if not session_is_wayland():
+        self._is_wayland = session_is_wayland()
+        self._retranslate()
+        self._refresh_idle_status()
+
+    # --- i18n ---
+
+    def t(self, key: str) -> str:
+        return _get(key, self.cfg.language)
+
+    def _refresh_idle_status(self) -> None:
+        if self.rec.state.active:
+            return
+        if not self._is_wayland:
+            self.status_lbl.setText(self.t("status_x11"))
+        else:
             self.status_lbl.setText(
-                "X11 algilandi: ffmpeg backend aktif. "
-                "Wayland oturumunda portal backend devreye girer."
+                self.t("status_ready").format(backend=self.rec.name)
             )
 
+    def _retranslate(self) -> None:
+        """Re-apply all static texts after a language switch."""
+        lang = self.cfg.language
+        self.brand_sub.setText(_get("subtitle", lang))
+        self._refresh_idle_status()
+        recording = self.rec.state.active
+        self.rec_btn.setText(
+            _get("rec_stop", lang) if recording else _get("rec_start", lang)
+        )
+        self.pause_btn.setText(
+            _get("resume", lang)
+            if self.rec.state.paused
+            else _get("pause", lang)
+        )
+        self.quit_btn.setText(_get("quit", lang))
+        self.outcome_lbl.setText(_get("outcome", lang))
+        self.region_hint.setText(_get("region_hint", lang))
+        self.lbl_src.setText(_get("label_source", lang))
+        self.lbl_q.setText(_get("label_quality", lang))
+        self.lbl_lang.setText(_get("label_language", lang))
+        self.lbl_gain.setText(_get("label_gain", lang))
+        self.lbl_region.setText(_get("label_region", lang))
+        self.audio_cb.setText(_get("audio_check", lang))
+
+        for header, key in (
+            (self.src_header, "section_capture"),
+            (self.audio_header, "section_audio"),
+            (self.region_header, "section_region"),
+        ):
+            lbl = header.findChild(QLabel)
+            if lbl is not None:
+                lbl.setText(_get(key, lang))
+
+        self.mode_cb.blockSignals(True)
+        self.mode_cb.clear()
+        self.mode_cb.addItem(_get("mode_fullscreen", lang), "fullscreen")
+        self.mode_cb.addItem(_get("mode_window", lang), "window")
+        self.mode_cb.addItem(_get("mode_ask", lang), "ask")
+        idx = self.mode_cb.findData(self.cfg.capture_mode)
+        if idx >= 0:
+            self.mode_cb.setCurrentIndex(idx)
+        self.mode_cb.blockSignals(False)
+
+        self.quality_cb.blockSignals(True)
+        self.quality_cb.clear()
+        self.quality_cb.addItem(_get("quality_draft", lang), "draft")
+        self.quality_cb.addItem(_get("quality_balanced", lang), "balanced")
+        self.quality_cb.addItem(_get("quality_high", lang), "high")
+        idx = self.quality_cb.findData(self.cfg.quality_preset)
+        if idx >= 0:
+            self.quality_cb.setCurrentIndex(idx)
+        self.quality_cb.blockSignals(False)
+
+    def _on_language_changed(self, idx: int) -> None:
+        code = self.lang_cb.itemData(idx)
+        if not code:
+            return
+        self.cfg.language = normalize(code)
+        try:
+            self.rec.cfg.language = self.cfg.language
+        except AttributeError:
+            pass
+        self._retranslate()
+
     def _set_recording_ui(self, recording: bool) -> None:
-        """Kayit durumunu buton/sayaç rengine yansitir."""
+        """Reflect the recording state on the button/timer color."""
         self.rec_btn.setProperty("recording", recording)
         self.time_lbl.setProperty("recording", recording)
         for w in (self.rec_btn, self.time_lbl):
@@ -487,21 +569,26 @@ class MainWindow(QMainWindow):
             try:
                 final = self.rec.start()
             except FileNotFoundError:
-                self.status_lbl.setText("ffmpeg/gst-launch bulunamadi!")
+                self.status_lbl.setText(self.t("deps_missing"))
                 return
             except Exception as e:  # noqa: BLE001
-                self.status_lbl.setText(f"Başlatılamadı: {e}")
+                self.status_lbl.setText(self.t("start_failed").format(err=e))
                 return
             tmp = self.rec.state.tmp_path
-            self.status_lbl.setText(f"Kaydediliyor -> {tmp.name if tmp else final.name}")
-            self.rec_btn.setText("■ Durdur")
+            self.status_lbl.setText(
+                self.t("recording_to").format(
+                    name=tmp.name if tmp else final.name
+                )
+            )
+            self.rec_btn.setText(self.t("rec_stop"))
             self.audio_cb.setEnabled(False)
             self.gain_spin.setEnabled(False)
             self.mode_cb.setEnabled(False)
             self.quality_cb.setEnabled(False)
+            self.lang_cb.setEnabled(False)
             self._set_region_enabled(False)
             self.pause_btn.setEnabled(True)
-            self.pause_btn.setText("⏸ Duraklat")
+            self.pause_btn.setText(self.t("pause"))
             self._set_recording_ui(True)
             self.timer.start()
         else:
@@ -511,19 +598,22 @@ class MainWindow(QMainWindow):
             self.gain_spin.setEnabled(True)
             self.mode_cb.setEnabled(True)
             self.quality_cb.setEnabled(True)
+            self.lang_cb.setEnabled(True)
             self._set_region_enabled(True)
             self.pause_btn.setEnabled(False)
-            self.pause_btn.setText("⏸ Duraklat")
+            self.pause_btn.setText(self.t("pause"))
             if out:
-                self.status_lbl.setText(f"Kurtarildi: {out}")
+                self.status_lbl.setText(self.t("saved").format(out=out))
             else:
-                self.status_lbl.setText(f"Hata: {self.rec.state.last_error}")
-            self.rec_btn.setText("● Kayda Başla")
+                self.status_lbl.setText(
+                    self.t("error_prefix").format(err=self.rec.state.last_error)
+                )
+            self.rec_btn.setText(self.t("rec_start"))
             self._set_recording_ui(False)
 
     def _on_audio_toggled(self, checked: bool) -> None:
         self.cfg.audio_enabled = checked
-        # Backend cfg'yi referans tutar; kayit sirasi degisiklik engellenir.
+        # The backend holds cfg by reference; changes mid-recording are blocked.
         try:
             self.rec.cfg.audio_enabled = checked
         except AttributeError:
@@ -543,17 +633,17 @@ class MainWindow(QMainWindow):
         try:
             if self.rec.state.paused:
                 self.rec.resume()
-                self.pause_btn.setText("⏸ Duraklat")
+                self.pause_btn.setText(self.t("pause"))
                 tmp = self.rec.state.tmp_path
                 self.status_lbl.setText(
-                    f"Kaydediliyor -> {tmp.name if tmp else ''}"
+                    self.t("recording_to").format(name=tmp.name if tmp else "")
                 )
             else:
                 self.rec.pause()
-                self.pause_btn.setText("▶ Sürdür")
-                self.status_lbl.setText("Duraklatıldı — süre işlemiyor")
+                self.pause_btn.setText(self.t("resume"))
+                self.status_lbl.setText(self.t("paused_status"))
         except Exception as e:  # noqa: BLE001
-            self.status_lbl.setText(f"Duraklatma hatası: {e}")
+            self.status_lbl.setText(self.t("pause_error").format(err=e))
 
     def _on_quality_changed(self, idx: int) -> None:
         preset = self.quality_cb.itemData(idx)
@@ -563,7 +653,7 @@ class MainWindow(QMainWindow):
             self.cfg.apply_quality_preset(preset)
         except ValueError:
             return
-        # Backend cfg'yi referans tutar; sonraki kayda uygulanir.
+        # The backend holds cfg by reference; applies to the next recording.
         try:
             self.rec.cfg.apply_quality_preset(preset)
         except (AttributeError, ValueError):
@@ -602,14 +692,17 @@ class MainWindow(QMainWindow):
             s = int(self.rec.elapsed)
             self.time_lbl.setText(f"{s // 60:02d}:{s % 60:02d}")
         if self.rec.state.last_error and not self.rec.state.active:
-            self.status_lbl.setText(f"Hata: {self.rec.state.last_error}")
-            self.rec_btn.setText("● Kayda Başla")
+            self.status_lbl.setText(
+                self.t("error_prefix").format(err=self.rec.state.last_error)
+            )
+            self.rec_btn.setText(self.t("rec_start"))
             self.pause_btn.setEnabled(False)
-            self.pause_btn.setText("⏸ Duraklat")
+            self.pause_btn.setText(self.t("pause"))
             self.audio_cb.setEnabled(True)
             self.gain_spin.setEnabled(True)
             self.mode_cb.setEnabled(True)
             self.quality_cb.setEnabled(True)
+            self.lang_cb.setEnabled(True)
             self._set_region_enabled(True)
             self._set_recording_ui(False)
             self.timer.stop()

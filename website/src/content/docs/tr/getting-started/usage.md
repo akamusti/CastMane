@@ -15,6 +15,12 @@ description: CastMane ile kayıt, duraklatma, durdurma ve kurtarma.
 4. **Durdur'a basın.** Bitmiş dosya `~/Videos/CastMane` altında
    `castmane_YYYY-MM-DD_HH-MM-SS.mp4` olarak durur.
 
+## Dil
+
+Arayüz varsayılan olarak İngilizcedir. Türkçeye geçmek için Kayıt
+Ayarları'ndaki **Dil** menüsünden **Türkçe**'yi seçin.
+Kod ile: `AppConfig(language="tr")`.
+
 ## Duraklatma ve sürdürme
 
 Kayıt sırasında **Duraklat**'a basarak encoder'ı dondurun (`SIGSTOP`); süre

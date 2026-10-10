@@ -15,6 +15,12 @@ description: Record, pause, stop, and recover recordings with CastMane.
 4. **Press Stop.** The finished file lands in `~/Videos/CastMane` as
    `castmane_YYYY-MM-DD_HH-MM-SS.mp4`.
 
+## Language
+
+The interface is English by default. To switch to Turkish, pick
+**Türkçe** from the **Language** dropdown in Recording Settings.
+In code: `AppConfig(language="tr")`.
+
 ## Pause and resume
 
 Press **Pause** mid-recording to freeze the encoder (`SIGSTOP`); the timer

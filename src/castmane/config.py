@@ -1,36 +1,44 @@
-"""Kullanici ayari + varsayilan cikti yolu."""
+"""User settings + default output path."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from .i18n import DEFAULT_LANGUAGE, normalize
+
 
 @dataclass
 class AppConfig:
     output_dir: Path = Path.home() / "Videos" / "CastMane"
+    # UI language: "en" (default) or "tr". Switchable at runtime,
+    # e.g. AppConfig(language="tr").
+    language: str = DEFAULT_LANGUAGE
     fps: int = 30
-    # Crash-safe: ffmpeg/GStreamer'a fragmented MP4 yazdiriyoruz,
-    # process olse bile dosya oynatilabilir kaliyor.
+    # Crash-safe: ffmpeg/GStreamer writes fragmented MP4,
+    # so the file stays playable even if the process dies.
     movflags: str = "frag_keyframe+empty_moov+default_base_moof"
-    video_codec: str = "libopenh264"  # ffmpeg yuzu; GStreamer yuzu: openh264enc
-    video_bitrate_kbps: int = 8000  # portal/GStreamer hatti
-    fragment_ms: int = 1000  # mp4mux fragment-duration: crash'te dosya yasar
-    audio_enabled: bool = False  # True ise mikrofon/sistem sesi de kaydedilir
-    # Pulse/PipeWire kaynak adi: "auto"/"default"/"mic" -> varsayilan kaynak
-    # (genelde mikrofon). Sistem sesi icin monitor cihazi yazilir, örn:
+    video_codec: str = "libopenh264"  # ffmpeg side; GStreamer side: openh264enc
+    video_bitrate_kbps: int = 8000  # portal/GStreamer pipeline
+    fragment_ms: int = 1000  # mp4mux fragment-duration: file survives a crash
+    audio_enabled: bool = False  # when True, mic/system sound is recorded too
+    # Pulse/PipeWire source name: "auto"/"default"/"mic" -> default source
+    # (usually the mic). For system sound pass a monitor device, e.g.:
     # "alsa_output.pci-0000_00_1f.3.analog-stereo.monitor".
-    # `pactl list short sources` ile listelenir.
+    # List with `pactl list short sources`.
     audio_source: str = "auto"
-    audio_bitrate_kbps: int = 128  # AAC ses bitrate'i
-    # Yazilimsal ses kazanci (carpan): 1.0 = %100 (degisiklik yok).
-    # Monitor kaynagi (sistem sesi) mikrofona gore cılız gelirse
-    # yukseltin, örn. 2.0 (~+6 dB) veya 3.0 (~+9.5 dB). 5.0'yi
-    # gecmeyin (kırpılma/distorsiyon riski).
+    audio_bitrate_kbps: int = 128  # AAC audio bitrate
+    # Software audio gain (multiplier): 1.0 = 100% (no change).
+    # Monitor sources (system sound) are much quieter than mic input,
+    # so raise it, e.g. 2.0 (~+6 dB) or 3.0 (~+9.5 dB). Stay at or
+    # below 5.0 (clipping/distortion risk).
     audio_gain: float = 1.0
-    # Kalite on ayari: "draft" (hafif/hizli), "balanced" (varsayilan),
-    # "high" (yogun). fps X11 yakalamayi, bitrate iki backend'i de etkiler.
+    # Quality preset: "draft" (light/fast), "balanced" (default),
+    # "high" (heavy). fps affects X11 capture, bitrate affects both backends.
     quality_preset: str = "balanced"
+
+    def __post_init__(self) -> None:
+        self.language = normalize(self.language)
 
     def apply_quality_preset(self, name: str) -> None:
         presets = {
@@ -39,30 +47,30 @@ class AppConfig:
             "high": {"fps": 60, "video_bitrate_kbps": 16000},
         }
         if name not in presets:
-            raise ValueError(f"bilinmeyen kalite on ayari: {name}")
+            raise ValueError(f"unknown quality preset: {name}")
         self.quality_preset = name
         self.fps = presets[name]["fps"]
         self.video_bitrate_kbps = presets[name]["video_bitrate_kbps"]
-    # Kaynak secimi: "fullscreen" (monitor), "window" (pencere),
-    # "ask" (kullanicidan secmesi istenir).
-    # Wayland: portal SelectSources `types` bitmask'ine cevrilir
-    # (1=monitor, 2=window, 3=ikisi; sistem diyafonu acar).
-    # X11: "window" window_id gerektirir, "ask" fareyle bolge
-    # secimini acar (ffmpeg -select_region).
+    # Source selection: "fullscreen" (monitor), "window" (window),
+    # "ask" (ask the user each time).
+    # Wayland: translated to the portal SelectSources `types` bitmask
+    # (1=monitor, 2=window, 3=both; opens the system dialog).
+    # X11: "window" needs window_id, "ask" opens mouse region selection
+    # (ffmpeg -select_region).
     capture_mode: str = "fullscreen"
-    region_x: int = 0  # X11 sabit bolge sol-ust kose (0 = tam ekran)
+    region_x: int = 0  # X11 fixed region top-left corner (0 = fullscreen)
     region_y: int = 0
-    region_w: int = 0  # 0 = tam ekran genisligi
+    region_w: int = 0  # 0 = fullscreen width
     region_h: int = 0
-    window_id: int = 0  # X11: 0 disi deger tek pencere yakalar
+    window_id: int = 0  # X11: non-zero value captures a single window
 
     def source_types(self) -> int:
-        """Portal SelectSources `types` bitmask'i."""
+        """Portal SelectSources `types` bitmask."""
         if self.capture_mode == "window":
             return 2
         if self.capture_mode == "ask":
-            return 3  # 1 | 2: monitor veya pencere
-        return 1  # fullscreen varsayilan
+            return 3  # 1 | 2: monitor or window
+        return 1  # fullscreen default
 
     def next_output_path(self, suffix: str = ".mp4") -> Path:
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -70,6 +78,6 @@ class AppConfig:
         return self.output_dir / f"castmane_{stamp}{suffix}"
 
     def tmp_path_for(self, final: Path) -> Path:
-        """Ayni klasorde .part dosyasi: crash'te yarim dosya belli olur,
-        basarili bitiste atomic rename ile finale tasinir."""
+        """Same-folder .part file: a leftover part signals an interrupted
+        recording; on clean stop it is atomically renamed to the final."""
         return final.with_suffix(final.suffix + ".part")

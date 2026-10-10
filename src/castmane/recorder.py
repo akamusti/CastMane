@@ -1,13 +1,13 @@
-"""Crash-safe kayit cekirdegi.
+"""Crash-safe recording core.
 
-Tasarim notu (OBS crash'lerine care):
-- ffmpeg/GStreamer'a `-movflags frag_keyframe+empty_moov` ile yazdirilir:
-  moov atomu basa degil parca parca yazilir, process kill yese bile
-  dosya oynatilabilir kalir.
-- Kayit `.mp4.part` dosyasina yapilir, stop basarili olursa atomic
-  `os.replace()` ile finale tasinir.
-- Watchdog: encoder process'i beklenmedik biterse son 5 sn'lik log
-  saklanir, UI "kurtarildi: X.mp4.part" gosterir.
+Design note (a cure for OBS-style crashes):
+- ffmpeg/GStreamer writes with `-movflags frag_keyframe+empty_moov`:
+  the moov atom is written piecewise, not once at the end, so the file
+  stays playable even if the process is killed.
+- Recording goes to an `.mp4.part` file; on successful stop it is moved
+  to the final name with atomic `os.replace()`.
+- Watchdog: if the encoder process dies unexpectedly, the last ~5s of log
+  is kept and the UI shows "saved: X.mp4.part".
 """
 from __future__ import annotations
 
@@ -23,10 +23,10 @@ from .config import AppConfig
 
 
 def finalize_part(tmp: Path, final: Path) -> Path | None:
-    """Crash-safe bitis: `.part` saglikliysa atomic rename ile finale tasinir.
+    """Crash-safe finish: atomically rename `.part` to final if healthy.
 
-    Kill/crash durumunda `.part` dosyasi yerinde kalir ve fragmented
-    MP4 sayesinde oynatilabilir olur."""
+    On kill/crash the `.part` file stays in place and remains playable
+    thanks to fragmented MP4."""
     if tmp.exists() and tmp.stat().st_size > 0:
         os.replace(tmp, final)
         return final
@@ -38,17 +38,17 @@ class RecordingState:
     active: bool = False
     final_path: Path | None = None
     tmp_path: Path | None = None
-    mkv_path: Path | None = None  # portal backend ara urunu (MKV)
+    mkv_path: Path | None = None  # portal backend intermediate (MKV)
     started_at: float = 0.0
     last_error: str = ""
-    paused: bool = False  # SIGSTOP ile donduruldu
+    paused: bool = False  # frozen via SIGSTOP
     pause_started: float = 0.0
-    paused_total: float = 0.0  # toplam duraklatilmis sure
+    paused_total: float = 0.0  # total paused time
 
 
 class FfmpegX11Recorder:
-    """X11 fallback backend. Wayland'da calismaz (siyah ekran verir),
-    ama cekirdek crash-safe mantigini test etmek icin birebir."""
+    """X11 fallback backend. Does not work on Wayland (gives black screen),
+    but is ideal for testing the crash-safe core logic."""
 
     name = "ffmpeg (X11)"
 
@@ -63,11 +63,11 @@ class FfmpegX11Recorder:
         display = os.environ.get("DISPLAY", ":0")
         cmd = ["ffmpeg", "-y"]
         if self.cfg.window_id > 0:
-            # Tek pencere: X11 pencere kimligi (örn. `xwininfo` ciktisi).
+            # Single window: X11 window id (e.g. from `xwininfo`).
             cmd += ["-window_id", str(self.cfg.window_id)]
         cmd += ["-f", "x11grab"]
         if self.cfg.region_w > 0 and self.cfg.region_h > 0:
-            # Sabit bolge: WxH + sol-ust kose.
+            # Fixed region: WxH + top-left corner.
             cmd += [
                 "-video_size", f"{self.cfg.region_w}x{self.cfg.region_h}",
                 "-grab_x", str(self.cfg.region_x),
@@ -75,15 +75,15 @@ class FfmpegX11Recorder:
                 "-show_region", "1",
             ]
         elif self.cfg.capture_mode == "ask" and self.cfg.window_id <= 0:
-            # Etkilesimli: kullanici fareyle cerceveyi cizer.
+            # Interactive: the user draws the frame with the mouse.
             cmd += ["-select_region", "1", "-show_region", "1"]
         cmd += [
             "-framerate", str(self.cfg.fps),
             "-i", display,
         ]
         if self.cfg.audio_enabled:
-            # PulseAudio uyumlulugu uzerinden (PipeWire saglar):
-            # "auto"/"default"/"mic" -> varsayilan kaynak, yoksa verilen cihaz.
+            # Via PulseAudio compatibility (provided by PipeWire):
+            # "auto"/"default"/"mic" -> default source, else the given device.
             src = self.cfg.audio_source
             if src in ("", "auto", "default", "mic"):
                 src = "default"
@@ -94,7 +94,7 @@ class FfmpegX11Recorder:
         ]
         if self.cfg.audio_enabled:
             cmd += ["-c:a", "aac", "-b:a", f"{self.cfg.audio_bitrate_kbps}k"]
-            # Yazilimsal kazanc: 1.0'da filtre eklenmez.
+            # Software gain: no filter added at 1.0.
             if self.cfg.audio_gain != 1.0:
                 cmd += ["-filter:a", f"volume={self.cfg.audio_gain}"]
         cmd += [
@@ -105,7 +105,7 @@ class FfmpegX11Recorder:
 
     def start(self) -> Path:
         if self.state.active:
-            raise RuntimeError("zaten kayit aktif")
+            raise RuntimeError("recording already active")
         final = self.cfg.next_output_path(".mp4")
         tmp = self.cfg.tmp_path_for(final)
         cmd = self.build_cmd(tmp)
@@ -128,9 +128,9 @@ class FfmpegX11Recorder:
         out, _ = self._proc.communicate()
         if self._stop_requested.is_set():
             return
-        # beklenmedik olum -> crash-safe: .part dosyasi duruyor
+        # unexpected death -> crash-safe: the .part file is still there
         tail = (out or b"")[-2000:].decode(errors="replace")
-        self.state.last_error = f"encoder erken bitti (rc={self._proc.returncode}): {tail[-300:]}"
+        self.state.last_error = f"encoder exited early (rc={self._proc.returncode}): {tail[-300:]}"
         self.state.active = False
 
     def stop(self) -> Path | None:
@@ -138,9 +138,9 @@ class FfmpegX11Recorder:
             return None
         self._stop_requested.set()
         if self.state.paused:
-            # Durdurulmus surec sinyalleri islemez; once surdur.
+            # A stopped process ignores signals; resume first.
             self.resume()
-        # once graceful SIGINT (ffmpeg trailer yazar), olmazsa SIGTERM
+        # graceful SIGINT first (ffmpeg writes the trailer), then SIGTERM
         self._proc.send_signal(signal.SIGINT)
         try:
             self._proc.wait(timeout=5)
@@ -154,7 +154,7 @@ class FfmpegX11Recorder:
         assert self.state.tmp_path and self.state.final_path
         done = finalize_part(self.state.tmp_path, self.state.final_path)
         if done is None:
-            self.state.last_error = "cikti dosyasi olusmadi"
+            self.state.last_error = "output file was not created"
         return done
 
     @property
@@ -165,10 +165,10 @@ class FfmpegX11Recorder:
         return end - self.state.started_at - self.state.paused_total
 
     def pause(self) -> None:
-        """Encoder surecini dondur (SIGSTOP). Saat de donar: duraklatilan
-        sure `elapsed` disinda tutulur, videoda atlama olarak gorunur."""
+        """Freeze the encoder process (SIGSTOP). The clock freezes too: paused
+        time is excluded from `elapsed` and shows up as a jump in the video."""
         if not self.state.active or self._proc is None:
-            raise RuntimeError("duraklatilacak aktif kayit yok")
+            raise RuntimeError("no active recording to pause")
         if self.state.paused:
             return
         self._proc.send_signal(signal.SIGSTOP)
@@ -177,7 +177,7 @@ class FfmpegX11Recorder:
 
     def resume(self) -> None:
         if not self.state.paused or self._proc is None:
-            raise RuntimeError("surdurulecek duraklatilmis kayit yok")
+            raise RuntimeError("no paused recording to resume")
         self._proc.send_signal(signal.SIGCONT)
         self.state.paused_total += time.time() - self.state.pause_started
         self.state.paused = False
@@ -186,15 +186,15 @@ class FfmpegX11Recorder:
 
 @dataclass
 class PortalRecorderConfig:
-    """Wayland backend hedef pipeline (faz-2, henuz baglanmadi):
+    """Wayland backend target pipeline (phase-2, not wired up yet):
 
     gst-launch-1.0 pipewiresrc path=<portal-node-id> ! videoconvert !
         openh264enc bitrate=8000 ! h264parse ! \
         mp4mux fragment-duration=1000 ! filesink location=X.mp4.part
 
-    Portal akisi: org.freedesktop.portal.Desktop::CreateSession +
+    Portal flow: org.freedesktop.portal.Desktop::CreateSession +
     SelectSources(screencast) + Start -> PipeWire node id + fd.
-    Bu dosya sadece hedefi belgeliyor; implementasyon `backends/portal.py`
-    icinde olacak (python-dbus-next + Gst).
+    This file only documents the target; the implementation lives in
+    `backends/portal.py` (python-dbus-next + Gst).
     """
     fragment_ms: int = 1000

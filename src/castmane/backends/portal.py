@@ -1,20 +1,20 @@
 """Wayland backend: xdg-desktop-portal ScreenCast + gst-launch (pipewiresrc).
 
-Neden bu mimari?
-- Sistem ffmpeg'inde pipewire demuxer yok, ama GStreamer'da `pipewiresrc` var.
-- Portal diyafonu (D-Bus) saf Python (`dbus-next`) ile yapiliyor,
-  video hatti `gst-launch-1.0` alt prosesi: PyGObject'e gerek yok.
-- Crash-safe: `matroskamux` ile MKV kaydi (PTS'siz ilk kareyi tolere
-  eder; mp4mux'un "Buffer has no PTS" hatasi yasanmaz) + `.part`
-  dosyasi + atomic rename. Duzgun stop'ta `ffmpeg -c copy` ile hizli
-  MP4 remux; remux yarida kalirsa saglam MKV elde kalir.
+Why this architecture?
+- The system ffmpeg has no pipewire demuxer, but GStreamer has `pipewiresrc`.
+- The portal dialog (D-Bus) is done in pure Python (`dbus-next`),
+  the video pipeline is a `gst-launch-1.0` subprocess: no PyGObject needed.
+- Crash-safe: MKV recording via `matroskamux` (tolerates the first frame
+  without PTS; mp4mux would fail with "Buffer has no PTS") + `.part`
+  file + atomic rename. On clean stop a fast `ffmpeg -c copy` MP4 remux;
+  if the remux is interrupted, the healthy MKV is kept.
 
-Portal akisi: CreateSession -> SelectSources(monitor/window) -> Start
-(kullanici secim diyafonu) -> OpenPipeWireRemote -> (node_id, fd).
-Oturum, kayit boyunca acik tutulur (arka plan thread + asyncio loop);
-kapaninca PipeWire stream'i de olur. capture_mode "window" ise portal
-sadece pencere listeler, "ask" ise monitor+pencere secimini
-kullaniciya birakir.
+Portal flow: CreateSession -> SelectSources(monitor/window) -> Start
+(user selection dialog) -> OpenPipeWireRemote -> (node_id, fd).
+The session stays open for the whole recording (background thread +
+asyncio loop); when it closes, the PipeWire stream dies too. With
+capture_mode "window" the portal lists only windows, with "ask" it lets
+the user pick monitor+window.
 """
 from __future__ import annotations
 
@@ -37,9 +37,9 @@ from ..recorder import RecordingState, finalize_part
 BUS = "org.freedesktop.portal.Desktop"
 OBJ = "/org/freedesktop/portal/desktop"
 
-# Sabit kisim: oturum kapatma + istek cevabi. ScreenCast imzasi
-# portal surumune gore degistigi icin (o-sirasi, parametre sirasi)
-# calisma aninda broker'dan okunur (_discover_proxy).
+# Fixed part: session teardown + request response. ScreenCast signatures
+# differ across portal versions (arg order, parameter order), so they are
+# read from the broker at runtime (_discover_proxy).
 STATIC_IFACES = """<interface name="org.freedesktop.portal.Session">
     <method name="Close">
     </method>
@@ -53,9 +53,9 @@ STATIC_IFACES = """<interface name="org.freedesktop.portal.Session">
 
 
 async def _discover_proxy(bus: MessageBus) -> tuple[str, dict]:
-    """Broker'in ScreenCast imzalarini okuyup minimal proxy XML uretir.
+    """Read the broker's ScreenCast signatures and build a minimal proxy XML.
 
-    Donus: (xml, sig). sig ornegin
+    Returns: (xml, sig). sig e.g.
     {"SelectSources": [("session_handle", "o"), ("options", "a{sv}")],
      "Start": [("session_handle", "o"), ("parent_window", "s"), ...]}
     """
@@ -70,7 +70,7 @@ async def _discover_proxy(bus: MessageBus) -> tuple[str, dict]:
     all_xml: str = reply.body[0]
     start = all_xml.find('<interface name="org.freedesktop.portal.ScreenCast"')
     if start < 0:
-        raise RuntimeError("ScreenCast arayuzu bulunamadi")
+        raise RuntimeError("ScreenCast interface not found")
     block = all_xml[start : all_xml.find("</interface>", start)]
     parts = ["<node>", '<interface name="org.freedesktop.portal.ScreenCast">']
     sig: dict = {}
@@ -99,7 +99,7 @@ async def _discover_proxy(bus: MessageBus) -> tuple[str, dict]:
         parts.append("</method>")
         sig[name] = in_order
     if "SelectSources" not in sig or "Start" not in sig:
-        raise RuntimeError("ScreenCast imzalari okunamadi")
+        raise RuntimeError("could not read ScreenCast signatures")
     parts.append("</interface>")
     parts.append(STATIC_IFACES)
     parts.append("</node>")
@@ -109,7 +109,7 @@ _counter = itertools.count()
 
 
 def _new_token(prefix: str = "castmane") -> str:
-    # Portal ayni baglantida tekrar eden token'lari reddeder.
+    # The portal rejects repeated tokens on the same connection.
     return f"{prefix}{int(time.time())}_{os.getpid()}_{next(_counter)}"
 
 
@@ -119,12 +119,12 @@ def _resolve_call(iface, *candidates):
         if meth is not None:
             return meth
     avail = sorted(x for x in dir(iface) if x.startswith("call_"))
-    raise RuntimeError(f"portal metodu bulunamadi {candidates}, mevcut: {avail}")
+    raise RuntimeError(f"portal method not found {candidates}, available: {avail}")
 
 
 class PortalRecorder:
-    """Wayland ekran kaydi. Arayuz FfmpegX11Recorder ile ayni:
-    start() -> final yol, stop() -> bitmis dosya ya da None."""
+    """Wayland screen recording. Same interface as FfmpegX11Recorder:
+    start() -> final path, stop() -> finished file or None."""
 
     name = "portal (Wayland)"
 
@@ -146,11 +146,11 @@ class PortalRecorder:
         return end - self.state.started_at - self.state.paused_total
 
     def pause(self) -> None:
-        """gst-launch hattini dondur (SIGSTOP). Donusunde PipeWire
-        kuyrugundaki bayat kareler kisa bir yetisme olarak gorunebilir;
-        kayit butunlugu (.part + remux) etkilenmez."""
+        """Freeze the gst-launch pipeline (SIGSTOP). On resume, stale frames
+        queued in PipeWire may show up as a short catch-up burst;
+        recording integrity (.part + remux) is unaffected."""
         if not self.state.active or self._proc is None:
-            raise RuntimeError("duraklatilacak aktif kayit yok")
+            raise RuntimeError("no active recording to pause")
         if self.state.paused:
             return
         self._proc.send_signal(signal.SIGSTOP)
@@ -159,7 +159,7 @@ class PortalRecorder:
 
     def resume(self) -> None:
         if not self.state.paused or self._proc is None:
-            raise RuntimeError("surdurulecek duraklatilmis kayit yok")
+            raise RuntimeError("no paused recording to resume")
         self._proc.send_signal(signal.SIGCONT)
         self.state.paused_total += time.time() - self.state.pause_started
         self.state.paused = False
@@ -169,10 +169,10 @@ class PortalRecorder:
 
     def start(self) -> Path:
         if self.state.active:
-            raise RuntimeError("zaten kayit aktif")
+            raise RuntimeError("recording already active")
         final = self.cfg.next_output_path(".mp4")
-        # Kayit MKV'ya yapilir (mp4mux PTS'siz ilk karede olur),
-        # stop'ta MP4'e remux edilir. Ara dosya: X.mkv.part
+        # Recording goes to MKV (mp4mux dies on the first frame without PTS),
+        # remuxed to MP4 on stop. Intermediate: X.mkv.part
         tmp_mkv = final.with_suffix(".mkv.part")
         mkv_final = final.with_suffix(".mkv")
 
@@ -192,11 +192,12 @@ class PortalRecorder:
             stderr=subprocess.STDOUT,
             pass_fds=(fd,),
         )
-        # Hizli olum kontrolu: boru hatti 3 sn yasamazsa hemen bildir.
+        # Quick death check: report immediately if the pipeline
+        # does not survive 3 seconds.
         death = self._early_death(timeout=3.0)
         if death is not None:
             self._stop_event.set()
-            raise RuntimeError(f"GStreamer hatti kurulamadi: {death}")
+            raise RuntimeError(f"GStreamer pipeline failed to start: {death}")
 
         self.state = RecordingState(
             active=True, final_path=final, tmp_path=tmp_mkv,
@@ -208,9 +209,9 @@ class PortalRecorder:
         if not self.state.active or self._proc is None:
             return None
         if self.state.paused:
-            # Durdurulmus surec sinyalleri islemez; once surdur.
+            # A stopped process ignores signals; resume first.
             self.resume()
-        # Once nazik SIGINT (muxer trailer yazsin), olmazsa sert kapat.
+        # Gentle SIGINT first (so the muxer writes the trailer), then hard kill.
         self._proc.send_signal(signal.SIGINT)
         try:
             self._proc.wait(timeout=6)
@@ -233,17 +234,17 @@ class PortalRecorder:
         assert self.state.tmp_path and self.state.final_path and self.state.mkv_path
         mkv = finalize_part(self.state.tmp_path, self.state.mkv_path)
         if mkv is None:
-            self.state.last_error = "cikti dosyasi olusmadi"
+            self.state.last_error = "output file was not created"
             return None
-        # Hizli kayipsiz remux: MKV -> MP4. Basarisiz olursa saglam
-        # MKV'yi teslim et (kullanicinin goruntusu kaybolmasin).
+        # Fast lossless remux: MKV -> MP4. If it fails, hand over the
+        # healthy MKV (never lose the user's footage).
         if self._remux(mkv, self.state.final_path):
             try:
                 mkv.unlink()
             except OSError:
                 pass
             return self.state.final_path
-        self.state.last_error = "MP4 remux basarisiz, MKV teslim edildi"
+        self.state.last_error = "MP4 remux failed, MKV handed over instead"
         return mkv
 
     def _remux(self, mkv: Path, mp4: Path) -> bool:
@@ -262,24 +263,27 @@ class PortalRecorder:
     # -- komut --
 
     def build_cmd(self, node: int, fd: int, tmp: Path) -> list[str]:
-        # fd numarasi pass_fds ile cocuk proseste aynen korunur.
-        # gst-launch her argv ogesini ayri token sayar: oge ve ozellikler
-        # AYRI liste ogeleri olmali ("pipewiresrc fd=.. path=.." tek
-        # ogede birlesirse "hatali boru hatti: soz dizim hatasi" verir).
-        # Ses aciksa matroskamux'a ikinci dal baglanir (adlandirilmis mux):
+        # The fd number is preserved as-is in the child via pass_fds.
+        # gst-launch treats each argv item as a separate token: elements and
+        # properties must be SEPARATE list items (merging them into one item
+        # like "pipewiresrc fd=.. path=.." gives "erroneous pipeline:
+        # syntax error").
+        # With audio on, a second branch feeds the named mux:
         # video ... ! mux. + audio pulsesrc ... ! mux.
-        # AAC secildi: MKV'da da MP4 remux'ta da kayipsiz `-c copy` ile tasinir.
+        # AAC is picked so it travels losslessly with `-c copy`
+        # both in MKV and in the MP4 remux.
         cmd = [
             "gst-launch-1.0",
-            # do-timestamp: PipeWire tamponlarinda PTS olmaz, mp4mux ister;
-            # boru hatti saatine gore damgala ("Buffer has no PTS" cozumu).
+            # do-timestamp: PipeWire buffers carry no PTS but mp4mux wants
+            # one; stamp from the pipeline clock ("Buffer has no PTS" fix).
             "pipewiresrc", f"fd={fd}", f"path={node}", "do-timestamp=true",
             "!", "videoconvert",
             "!", "queue",
             "!", "openh264enc", f"bitrate={self.cfg.video_bitrate_kbps * 1000}",
             "!", "h264parse",
-            # mp4mux PTS'siz ilk karede "Buffer has no PTS" diye olur;
-            # matroskamux tolere eder, MP4 stop'ta remux ile uretilir.
+            # mp4mux dies on the first frame without PTS ("Buffer has no
+            # PTS"); matroskamux tolerates it, MP4 is produced via remux
+            # on stop.
             "!", "queue",
             "!",
         ]
@@ -293,9 +297,9 @@ class PortalRecorder:
                 "!", "audioconvert",
                 "!", "audioresample",
             ]
-            # Yazilimsal kazanc: monitor (sistem sesi) girisi genelde
-            # mikrofon girisinden cok daha cılızdır; volume >1.0 ile
-            # dengeleyin (1.0'da oge eklenmez, hat ayni kalir).
+            # Software gain: monitor (system sound) input is usually much
+            # quieter than mic input; compensate with volume >1.0
+            # (nothing added at 1.0, pipeline unchanged).
             if self.cfg.audio_gain != 1.0:
                 cmd += ["!", "volume", f"volume={self.cfg.audio_gain}"]
             cmd += [
@@ -308,7 +312,7 @@ class PortalRecorder:
             cmd += ["matroskamux", "!", "filesink", f"location={tmp}"]
         return cmd
 
-    # -- ic mekanizma --
+    # -- internals --
 
     def _wait_for_stream(self) -> tuple[int, int]:
         deadline = time.time() + self.dialog_timeout
@@ -320,12 +324,12 @@ class PortalRecorder:
             thread_alive = self._session_thread is not None and self._session_thread.is_alive()
             if not thread_alive:
                 raise RuntimeError(
-                    self._result.get("error", "portal oturumu erken bitti")
+                    self._result.get("error", "portal session ended early")
                 )
             time.sleep(0.2)
         self._stop_event.set()
         raise RuntimeError(
-            "ekran secimi zaman asimina ugradi: paylasim diyafonu cevaplanmadi"
+            "screen selection timed out: the share dialog was not answered"
         )
 
     def _early_death(self, timeout: float) -> str | None:
@@ -342,8 +346,8 @@ class PortalRecorder:
     def _session_main(self) -> None:
         try:
             asyncio.run(self._hold_session())
-        except Exception as e:  # noqa: BLE001 - thread disi hata kaybolmasin
-            self._result.setdefault("error", f"portal hatasi: {e}")
+        except Exception as e:  # noqa: BLE001 - don't lose thread errors
+            self._result.setdefault("error", f"portal error: {e}")
 
     async def _hold_session(self) -> None:
         bus = await MessageBus(bus_type=BusType.SESSION, negotiate_unix_fd=True).connect()
@@ -357,15 +361,15 @@ class PortalRecorder:
             )
             code, results = await self._await_response(bus, xml, req, 30)
             if code != 0:
-                raise RuntimeError("portal oturumu reddedildi")
+                raise RuntimeError("portal session was rejected")
             session = results["session_handle"].value
 
             req = await _resolve_call(sc, "call_select_sources")(
-                # Somut tiplere (s/o) duz deger verilir; Variant sadece
-                # a{sv} gibi variant tasiyan alanlarin icinde kullanilir.
+                # Concrete types (s/o) take plain values; Variant is only
+                # used inside a{sv}-style variant-carrying fields.
                 session,
                 {
-                    # 1=monitor (tam ekran), 2=pencere, 3=ikisini sor.
+                    # 1=monitor (fullscreen), 2=window, 3=ask both.
                     "types": Variant("u", self.cfg.source_types()),
                     "multiple": Variant("b", False),
                     "handle_token": Variant("s", _new_token()),
@@ -373,7 +377,7 @@ class PortalRecorder:
             )
             code, _ = await self._await_response(bus, xml, req, 30)
             if code != 0:
-                raise RuntimeError("kaynak secimi reddedildi")
+                raise RuntimeError("source selection was rejected")
 
             start_vals = {
                 "session_handle": session,
@@ -384,22 +388,22 @@ class PortalRecorder:
             req = await _resolve_call(sc, "call_start")(*start_args)
             code, results = await self._await_response(bus, xml, req, self.dialog_timeout)
             if code == 1:
-                raise RuntimeError("kullanici ekran paylasimini iptal etti")
+                raise RuntimeError("user cancelled screen sharing")
             if code != 0:
-                raise RuntimeError(f"portal Start basarisiz (kod={code})")
+                raise RuntimeError(f"portal Start failed (code={code})")
             streams = results["streams"].value
             if not streams:
-                raise RuntimeError("portal hicbir stream dondurmedi")
+                raise RuntimeError("portal returned no streams")
             node = int(streams[0][0])
 
             fd = await _resolve_call(
                 sc, "call_open_pipe_wire_remote", "call_open_pipewire_remote"
             )(session, {})
-            # dbus-next fd indeksini gercek fd'ye cevirir (replace_idx_with_fds).
+            # dbus-next translates the fd index into a real fd (replace_idx_with_fds).
             self._result["node"] = node
             self._result["fd"] = int(fd)
 
-            # Kayit bitene kadar oturumu canli tut.
+            # Keep the session alive until the recording ends.
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, self._stop_event.wait)
 
@@ -408,7 +412,7 @@ class PortalRecorder:
                 await sess_proxy.get_interface(
                     "org.freedesktop.portal.Session"
                 ).call_close()
-            except Exception:  # noqa: BLE001, S110 - kapanis en iyi efor
+            except Exception:  # noqa: BLE001, S110 - best effort on teardown
                 pass
         finally:
             bus.disconnect()

@@ -1,4 +1,4 @@
-"""Backend secimi: Wayland -> portal+GStreamer, X11 -> ffmpeg."""
+"""Backend selection: Wayland -> portal+GStreamer, X11 -> ffmpeg."""
 from __future__ import annotations
 
 import os
@@ -13,7 +13,7 @@ def session_is_wayland() -> bool:
 
 
 def create_backend(cfg: AppConfig):
-    """Ortam degiskenine gore dogru kayit motorunu dondurur."""
+    """Return the right recording engine for the current session."""
     if session_is_wayland():
         from .portal import PortalRecorder
 
