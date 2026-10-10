@@ -7,7 +7,6 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
     QGridLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -23,22 +22,31 @@ from .config import AppConfig
 
 STYLESHEET = """
 QMainWindow, QWidget {
-    background-color: #16181d;
+    background-color: #15171c;
     color: #e6e8ec;
-    font-family: "Segoe UI", "Noto Sans", "Ubuntu", sans-serif;
+    font-family: "Noto Sans", "DejaVu Sans", "Liberation Sans", sans-serif;
     font-size: 13px;
 }
 QFrame#Card {
-    background-color: #1f232b;
-    border: 1px solid #2b313b;
+    background-color: #1e222a;
+    border: 1px solid #2a303b;
     border-radius: 12px;
+}
+QFrame#AccentBar {
+    background-color: #3d8a53;
+    border-radius: 1px;
+}
+QFrame#Sep {
+    background-color: #2a303b;
+    border: none;
+    max-height: 1px;
 }
 QLabel#StatusLabel {
     color: #9aa4b2;
     font-size: 12px;
 }
 QLabel#SectionTitle {
-    color: #9aa4b2;
+    color: #aeb6c2;
     font-size: 11px;
     font-weight: bold;
 }
@@ -54,25 +62,14 @@ QLabel#TimeLabel {
 QLabel#TimeLabel[recording="true"] {
     color: #ff5f56;
 }
-QGroupBox {
-    background-color: transparent;
-    border: none;
-    margin-top: 4px;
-    padding-top: 14px;
-}
-QGroupBox::title {
-    subcontrol-origin: margin;
-    subcontrol-position: top left;
-    left: 0px;
+QLabel#FieldLabel {
     color: #9aa4b2;
-    font-size: 11px;
-    font-weight: bold;
 }
 QPushButton {
     background-color: #272d38;
     border: 1px solid #333b48;
     border-radius: 8px;
-    padding: 8px 16px;
+    padding: 7px 14px;
     color: #e6e8ec;
 }
 QPushButton:hover {
@@ -124,7 +121,7 @@ QComboBox {
     border: 1px solid #333b48;
     border-radius: 8px;
     padding: 6px 10px;
-    min-height: 18px;
+    min-height: 20px;
 }
 QComboBox:hover {
     border-color: #404a5a;
@@ -151,6 +148,7 @@ QSpinBox:hover {
 }
 QCheckBox {
     spacing: 8px;
+    background: transparent;
 }
 QCheckBox::indicator {
     width: 16px;
@@ -172,20 +170,51 @@ QCheckBox:disabled {
 """
 
 
+def _section_header(text: str) -> QWidget:
+    """Kart basligi: ince renk cubugu + kucuk harf etiketi."""
+    box = QWidget()
+    row = QHBoxLayout(box)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(8)
+    bar = QFrame()
+    bar.setObjectName("AccentBar")
+    bar.setFixedSize(3, 12)
+    title = QLabel(text)
+    title.setObjectName("SectionTitle")
+    row.addWidget(bar)
+    row.addWidget(title)
+    row.addStretch(1)
+    return box
+
+
+def _separator() -> QFrame:
+    line = QFrame()
+    line.setObjectName("Sep")
+    line.setFixedHeight(1)
+    return line
+
+
+def _field_label(text: str) -> QLabel:
+    lbl = QLabel(text)
+    lbl.setObjectName("FieldLabel")
+    return lbl
+
+
 class MainWindow(QMainWindow):
     def __init__(self, cfg: AppConfig | None = None) -> None:
         super().__init__()
         self.cfg = cfg or AppConfig()
         self.rec = create_backend(self.cfg)
         self.setWindowTitle("CastMane")
-        self.resize(460, 520)
+        self.resize(460, 500)
+        self.setMinimumSize(420, 460)
         self.setStyleSheet(STYLESHEET)
 
         root = QWidget()
         self.setCentralWidget(root)
         outer = QVBoxLayout(root)
         outer.setContentsMargins(16, 16, 16, 16)
-        outer.setSpacing(12)
+        outer.setSpacing(10)
 
         # --- Ust kart: kronometre + durum ---
         self.time_lbl = QLabel("00:00")
@@ -201,14 +230,14 @@ class MainWindow(QMainWindow):
         top = QFrame()
         top.setObjectName("Card")
         top_layout = QVBoxLayout(top)
-        top_layout.setContentsMargins(20, 24, 20, 20)
+        top_layout.setContentsMargins(20, 22, 20, 18)
         top_layout.setSpacing(6)
         top_layout.addWidget(self.time_lbl)
         top_layout.addWidget(self.status_lbl)
         outer.addWidget(top)
 
         # --- Kayit butonu ---
-        self.rec_btn = QPushButton("● Kayda Basla")
+        self.rec_btn = QPushButton("● Kayda Başla")
         self.rec_btn.setObjectName("RecordButton")
         self.rec_btn.setProperty("recording", False)
         self.rec_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -238,19 +267,17 @@ class MainWindow(QMainWindow):
         src_card = QFrame()
         src_card.setObjectName("Card")
         src_layout = QGridLayout(src_card)
-        src_layout.setContentsMargins(20, 16, 20, 18)
-        src_layout.setHorizontalSpacing(14)
-        src_layout.setVerticalSpacing(10)
+        src_layout.setContentsMargins(18, 16, 18, 18)
+        src_layout.setHorizontalSpacing(12)
+        src_layout.setVerticalSpacing(8)
+        src_layout.setColumnMinimumWidth(0, 78)
 
-        title1 = QLabel("KAYIT AYARLARI")
-        title1.setObjectName("SectionTitle")
-        src_layout.addWidget(title1, 0, 0, 1, 2)
-
-        src_layout.addWidget(QLabel("Kaynak:"), 1, 0)
-        src_layout.addWidget(self.mode_cb, 1, 1)
-        src_layout.addWidget(QLabel("Kalite:"), 2, 0)
-        src_layout.addWidget(self.quality_cb, 2, 1)
-        src_layout.setColumnStretch(1, 1)
+        src_layout.addWidget(_section_header("KAYIT AYARLARI"), 0, 0, 1, 2)
+        src_layout.addWidget(_separator(), 1, 0, 1, 2)
+        src_layout.addWidget(_field_label("Kaynak:"), 2, 0)
+        src_layout.addWidget(self.mode_cb, 2, 1)
+        src_layout.addWidget(_field_label("Kalite:"), 3, 0)
+        src_layout.addWidget(self.quality_cb, 3, 1)
         outer.addWidget(src_card)
 
         # --- Ses karti ---
@@ -259,34 +286,34 @@ class MainWindow(QMainWindow):
         self.audio_cb.toggled.connect(self._on_audio_toggled)
 
         audio_row = QHBoxLayout()
-        gain_lbl = QLabel("Ses kazancı:")
-        audio_row.addWidget(gain_lbl)
+        audio_row.setSpacing(10)
+        audio_row.addWidget(_field_label("Ses kazancı:"))
         self.gain_spin = QSpinBox()
         self.gain_spin.setPrefix("%")
         self.gain_spin.setRange(10, 500)
         self.gain_spin.setSingleStep(10)
         self.gain_spin.setValue(int(self.cfg.audio_gain * 100))
         self.gain_spin.valueChanged.connect(self._on_gain_changed)
+        self.gain_spin.setFixedWidth(110)
         audio_row.addWidget(self.gain_spin)
         audio_row.addStretch(1)
 
         audio_card = QFrame()
         audio_card.setObjectName("Card")
         audio_layout = QVBoxLayout(audio_card)
-        audio_layout.setContentsMargins(20, 16, 20, 18)
-        audio_layout.setSpacing(10)
-        title2 = QLabel("SES")
-        title2.setObjectName("SectionTitle")
-        audio_layout.addWidget(title2)
+        audio_layout.setContentsMargins(18, 16, 18, 18)
+        audio_layout.setSpacing(8)
+        audio_layout.addWidget(_section_header("SES"))
+        audio_layout.addWidget(_separator())
         audio_layout.addWidget(self.audio_cb)
         audio_layout.addLayout(audio_row)
         outer.addWidget(audio_card)
 
-        # --- X11 sabit bolge karti ---
-        # W/H sifirsa tam ekran, yoksa WxH+X+Y.
+        # --- X11 sabit bolge karti: W/H sifirsa tam ekran, yoksa WxH+X+Y. ---
         self.region_spins: dict[str, QSpinBox] = {}
         region_row = QHBoxLayout()
-        region_row.addWidget(QLabel("Bölge (X11):"))
+        region_row.setSpacing(8)
+        region_row.addWidget(_field_label("Bölge (X11):"))
         for key, maximum, value in (
             ("x", 10000, self.cfg.region_x),
             ("y", 10000, self.cfg.region_y),
@@ -298,19 +325,24 @@ class MainWindow(QMainWindow):
             spin.setRange(0, maximum)
             spin.setValue(value)
             spin.valueChanged.connect(self._on_region_changed)
+            spin.setMinimumWidth(74)
+            spin.setAlignment(Qt.AlignCenter)
             self.region_spins[key] = spin
             region_row.addWidget(spin)
         region_row.addStretch(1)
 
+        region_hint = QLabel("Boş/0 değerler tam ekran demektir")
+        region_hint.setObjectName("OutputLabel")
+
         region_card = QFrame()
         region_card.setObjectName("Card")
         region_layout = QVBoxLayout(region_card)
-        region_layout.setContentsMargins(20, 16, 20, 18)
-        region_layout.setSpacing(10)
-        title3 = QLabel("BÖLGE")
-        title3.setObjectName("SectionTitle")
-        region_layout.addWidget(title3)
+        region_layout.setContentsMargins(18, 16, 18, 18)
+        region_layout.setSpacing(8)
+        region_layout.addWidget(_section_header("BÖLGE"))
+        region_layout.addWidget(_separator())
         region_layout.addLayout(region_row)
+        region_layout.addWidget(region_hint)
         outer.addWidget(region_card)
 
         outcome_lbl = QLabel(
@@ -327,7 +359,7 @@ class MainWindow(QMainWindow):
         self.pause_btn.setCursor(Qt.PointingHandCursor)
         self.pause_btn.clicked.connect(self.toggle_pause)
 
-        quit_btn = QPushButton("Cikis")
+        quit_btn = QPushButton("Çıkış")
         quit_btn.setObjectName("QuitButton")
         quit_btn.setCursor(Qt.PointingHandCursor)
         quit_btn.clicked.connect(self.close)
@@ -348,6 +380,14 @@ class MainWindow(QMainWindow):
                 "Wayland oturumunda portal backend devreye girer."
             )
 
+    def _set_recording_ui(self, recording: bool) -> None:
+        """Kayit durumunu buton/sayaç rengine yansitir."""
+        self.rec_btn.setProperty("recording", recording)
+        self.time_lbl.setProperty("recording", recording)
+        for w in (self.rec_btn, self.time_lbl):
+            w.style().unpolish(w)
+            w.style().polish(w)
+
     def toggle(self) -> None:
         if not self.rec.state.active:
             try:
@@ -356,7 +396,7 @@ class MainWindow(QMainWindow):
                 self.status_lbl.setText("ffmpeg/gst-launch bulunamadi!")
                 return
             except Exception as e:  # noqa: BLE001
-                self.status_lbl.setText(f"Baslatilamadi: {e}")
+                self.status_lbl.setText(f"Başlatılamadı: {e}")
                 return
             tmp = self.rec.state.tmp_path
             self.status_lbl.setText(f"Kaydediliyor -> {tmp.name if tmp else final.name}")
@@ -368,6 +408,7 @@ class MainWindow(QMainWindow):
             self._set_region_enabled(False)
             self.pause_btn.setEnabled(True)
             self.pause_btn.setText("⏸ Duraklat")
+            self._set_recording_ui(True)
             self.timer.start()
         else:
             out = self.rec.stop()
@@ -383,7 +424,8 @@ class MainWindow(QMainWindow):
                 self.status_lbl.setText(f"Kurtarildi: {out}")
             else:
                 self.status_lbl.setText(f"Hata: {self.rec.state.last_error}")
-            self.rec_btn.setText("● Kayda Basla")
+            self.rec_btn.setText("● Kayda Başla")
+            self._set_recording_ui(False)
 
     def _on_audio_toggled(self, checked: bool) -> None:
         self.cfg.audio_enabled = checked
@@ -467,7 +509,7 @@ class MainWindow(QMainWindow):
             self.time_lbl.setText(f"{s // 60:02d}:{s % 60:02d}")
         if self.rec.state.last_error and not self.rec.state.active:
             self.status_lbl.setText(f"Hata: {self.rec.state.last_error}")
-            self.rec_btn.setText("● Kayda Basla")
+            self.rec_btn.setText("● Kayda Başla")
             self.pause_btn.setEnabled(False)
             self.pause_btn.setText("⏸ Duraklat")
             self.audio_cb.setEnabled(True)
@@ -475,6 +517,7 @@ class MainWindow(QMainWindow):
             self.mode_cb.setEnabled(True)
             self.quality_cb.setEnabled(True)
             self._set_region_enabled(True)
+            self._set_recording_ui(False)
             self.timer.stop()
 
     def closeEvent(self, event) -> None:  # noqa: N802
