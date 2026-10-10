@@ -1,38 +1,114 @@
 # CastMane
 
-OBS crash'lerine inat: **crash-safe ekran kaydedici**. GPL-3.0-or-later.
+**A crash-safe screen recorder for Linux (Wayland-first).**
 
-## Neden?
+[🇹🇷 Türkçe için tıklayın](README.tr.md)
 
-OBS kayit sirasinda crash verirse `.mp4` dosyan bozulur (moov atomu yazilamadi).
-CastMane iki kural uygular:
+OBS is powerful — but if it crashes mid-recording, the whole `.mp4` file is often
+lost. CastMane is built around a single principle: **a crash must never cost you
+the footage.**
 
-1. **Fragmented MP4** (`frag_keyframe+empty_moov`): dosya parca parca oynatilabilir yazilir.
-2. **`.part` + atomic rename**: kayit `X.mp4.part` dosyasina yapilir, saglikli stop'ta `X.mp4` olur. Kill yese bile `.part` izlenebilir kalir.
+## Why CastMane?
 
-## Durum (v0.2)
+Classic recorders finalize the MP4 container (`moov` atom) only when recording
+stops cleanly. Crash or `kill` the process and the file is unplayable. CastMane
+instead:
 
-- [x] Qt ana pencere (Rec/Stop, sure) — `src/castmane/app.py`
-- [x] Crash-safe cekirdek + X11 fallback (`ffmpeg x11grab`) — `src/castmane/recorder.py`
-- [x] Wayland portal + GStreamer backend (`pipewiresrc ! openh264enc ! mp4mux`) — `src/castmane/backends/portal.py`
-- [ ] Ses (Pulse/PipeWire) — faz-2
-- [ ] Pencere/bolge secimi — faz-3
+1. Writes **fragmented MP4** (`frag_keyframe+empty_moov`, `mp4mux fragment-duration`),
+   so every chunk of the file is playable on its own.
+2. Records to a **`.part` file** and renames it to the final name **atomically**
+   only after a clean stop. A leftover `.part` file is still watchable.
+3. Stops the encoder **gracefully** (`SIGINT` first, trailer included) and watches
+   the encoder process, so an unexpected death is reported instead of silently
+   losing footage.
 
-Kanıt: `kill -9` ile oldurulen kayit bile oynatilabilir kalir
-(`mp4mux fragment-duration=1000` + `.part` + atomic rename).
+> Verified: a recording killed with `kill -9` remains fully playable
+> (`h264`, `ffprobe`-checked). See [Crash-safety](#crash-safety) below.
 
-Ortam notu (Fedora 44 KDE Wayland): sistemdeki ffmpeg'te `pipewire` demuxer yok,
-o yuzden Wayland kaydi GStreamer `pipewiresrc` uzerinden yapiliyor.
-Kayda basinca sistemin ekran secim diyafonu acilir, ekrani secmen gerekir.
+## Features
 
-## Calistirma
+- 🖥️ Full-screen recording on **Wayland** via `xdg-desktop-portal` ScreenCast +
+  GStreamer (`pipewiresrc → openh264enc → mp4mux`) — no OBS, no compositor plugins
+- 🖥️ **X11 fallback** via `ffmpeg` (`x11grab`), selected automatically
+- 🛡️ Crash-safe output pipeline (fragmented MP4, `.part` staging, atomic rename,
+  encoder watchdog)
+- 🪶 Minimal Qt interface: Record / Stop, elapsed timer, status line
+- 📁 Timestamped files in `~/Videos/CastMane` (`castmane_YYYY-MM-DD_HH-MM-SS.mp4`)
+
+## Requirements
+
+- Linux, Python ≥ 3.10 (developed and tested on **Fedora 44, KDE Plasma, Wayland**)
+- `ffmpeg` — for the X11 backend
+- `gst-launch-1.0` with the `pipewiresrc`, `openh264enc` and `mp4mux` elements —
+  for the Wayland backend (present on stock Fedora KDE; check with
+  `gst-inspect-1.0 pipewiresrc`)
+- A running `xdg-desktop-portal` with a ScreenCast backend (KDE/GNOME provide one)
+
+## Installation
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-# Fedora'da Qt/GStreamer system baglari gerekiyorsa:
-# sudo dnf install python3-PySide6 gstreamer1-plugins-bad-free gstreamer1-plugins-ugly-free
+pip install -e .
 python3 -m castmane
 ```
 
-Kayitlar: `~/Videos/CastMane/castmane_*.mp4`
+No system Python packages or compiler toolchain required: the Wayland backend
+drives the portal over D-Bus (`dbus-next`) and runs GStreamer as a subprocess,
+so `PyGObject` is not needed.
+
+## Usage
+
+1. Start the app. The status line shows the active backend, e.g.
+   `Ready [portal (Wayland)]`.
+2. Press **Record**. On Wayland, the system screen-share dialog appears —
+   pick the monitor and confirm (you have 180 seconds).
+3. Press **Stop**. The finished file lands in `~/Videos/CastMane`.
+
+If recording is interrupted (crash, power loss, `kill -9`), look for the
+`*.mp4.part` file in the same folder — it plays as-is. Just rename it.
+
+## Crash-safety
+
+| Layer | Mechanism |
+|---|---|
+| Container | Fragmented MP4: `moov` is interleaved, not written once at the end |
+| File handling | Write to `X.mp4.part`, `os.replace()` to `X.mp4` only on clean stop |
+| Shutdown | `SIGINT` → wait → `SIGTERM` → `SIGKILL` escalation |
+| Monitoring | Encoder watchdog reports early exits with the last log lines |
+
+Reproduce the proof yourself:
+
+```bash
+gst-launch-1.0 videotestsrc is-live=true ! videoconvert ! openh264enc \
+  ! h264parse ! mp4mux fragment-duration=1000 \
+  ! filesink location=proof.mp4.part &
+sleep 4; kill -9 $!
+ffprobe -v error -show_entries stream=codec_name,width,height proof.mp4.part
+```
+
+## Architecture
+
+```
+src/castmane/
+├── app.py               # Qt main window (Record/Stop, timer, status)
+├── config.py            # Output dir, fps, bitrate, fragment settings
+├── recorder.py          # Crash-safe core: FfmpegX11Recorder + finalize_part()
+├── backends/__init__.py # create_backend(): portal on Wayland, ffmpeg on X11
+└── backends/portal.py   # PortalRecorder: ScreenCast D-Bus + gst-launch pipe
+```
+
+Portal signatures are discovered from the broker at runtime
+(`session_handle` type, `Start` argument order), so the client keeps working
+across `xdg-desktop-portal` versions.
+
+## Roadmap
+
+- [x] Full-screen recording (Wayland + X11)
+- [x] Crash-safe output pipeline
+- [ ] Audio capture (mic / system sound)
+- [ ] Window / region selection
+- [ ] Pause / resume, configurable quality presets
+
+## License
+
+GPL-3.0-or-later. See [LICENSE](LICENSE).
