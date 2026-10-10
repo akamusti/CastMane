@@ -17,13 +17,14 @@ from __future__ import annotations
 import asyncio
 import itertools
 import os
+import re
 import signal
 import subprocess
 import threading
 import time
 from pathlib import Path
 
-from dbus_next import BusType, Variant
+from dbus_next import BusType, Message, Variant
 from dbus_next.aio import MessageBus
 
 from ..config import AppConfig
@@ -32,33 +33,10 @@ from ..recorder import RecordingState, finalize_part
 BUS = "org.freedesktop.portal.Desktop"
 OBJ = "/org/freedesktop/portal/desktop"
 
-# Butun portal nesnesini introspect etmek dbus-next'i bozuyor
-# (bazi arayuzlerde gecerli olmayan uyeler var), o yuzden sadece
-# ihtiyacimiz olan 3 arayuzu tasiyan minimal XML kullaniyoruz.
-XML = """<node>
-  <interface name="org.freedesktop.portal.ScreenCast">
-    <method name="CreateSession">
-      <arg name="options" type="a{sv}" direction="in"/>
-      <arg name="request" type="o" direction="out"/>
-    </method>
-    <method name="SelectSources">
-      <arg name="session_handle" type="s" direction="in"/>
-      <arg name="options" type="a{sv}" direction="in"/>
-      <arg name="request" type="o" direction="out"/>
-    </method>
-    <method name="Start">
-      <arg name="parent_window" type="s" direction="in"/>
-      <arg name="session_handle" type="s" direction="in"/>
-      <arg name="options" type="a{sv}" direction="in"/>
-      <arg name="request" type="o" direction="out"/>
-    </method>
-    <method name="OpenPipeWireRemote">
-      <arg name="session_handle" type="s" direction="in"/>
-      <arg name="options" type="a{sv}" direction="in"/>
-      <arg name="fd" type="h" direction="out"/>
-    </method>
-  </interface>
-  <interface name="org.freedesktop.portal.Session">
+# Sabit kisim: oturum kapatma + istek cevabi. ScreenCast imzasi
+# portal surumune gore degistigi icin (o-sirasi, parametre sirasi)
+# calisma aninda broker'dan okunur (_discover_proxy).
+STATIC_IFACES = """<interface name="org.freedesktop.portal.Session">
     <method name="Close">
     </method>
   </interface>
@@ -67,8 +45,61 @@ XML = """<node>
       <arg name="response" type="u" direction="out"/>
       <arg name="results" type="a{sv}" direction="out"/>
     </signal>
-  </interface>
-</node>"""
+  </interface>"""
+
+
+async def _discover_proxy(bus: MessageBus) -> tuple[str, dict]:
+    """Broker'in ScreenCast imzalarini okuyup minimal proxy XML uretir.
+
+    Donus: (xml, sig). sig ornegin
+    {"SelectSources": [("session_handle", "o"), ("options", "a{sv}")],
+     "Start": [("session_handle", "o"), ("parent_window", "s"), ...]}
+    """
+    reply = await bus.call(
+        Message(
+            destination=BUS,
+            path=OBJ,
+            interface="org.freedesktop.DBus.Introspectable",
+            member="Introspect",
+        )
+    )
+    all_xml: str = reply.body[0]
+    start = all_xml.find('<interface name="org.freedesktop.portal.ScreenCast"')
+    if start < 0:
+        raise RuntimeError("ScreenCast arayuzu bulunamadi")
+    block = all_xml[start : all_xml.find("</interface>", start)]
+    parts = ["<node>", '<interface name="org.freedesktop.portal.ScreenCast">']
+    sig: dict = {}
+    for m in re.finditer(r'<method name="(\w+)">(.*?)</method>', block, re.S):
+        name, body = m.group(1), m.group(2)
+        if name not in (
+            "CreateSession",
+            "SelectSources",
+            "Start",
+            "OpenPipeWireRemote",
+        ):
+            continue
+        parts.append(f'<method name="{name}">')
+        in_order = []
+        for tag in re.findall(r"<arg\s+([^/]*)/>", body):
+            t = re.search(r'type="([^"]+)"', tag)
+            n = re.search(r'name="([^"]+)"', tag)
+            d = re.search(r'direction="([^"]+)"', tag)
+            if not (t and n and d):
+                continue
+            parts.append(
+                f'<arg name="{n.group(1)}" type="{t.group(1)}" direction="{d.group(1)}"/>'
+            )
+            if d.group(1) == "in":
+                in_order.append((n.group(1), t.group(1)))
+        parts.append("</method>")
+        sig[name] = in_order
+    if "SelectSources" not in sig or "Start" not in sig:
+        raise RuntimeError("ScreenCast imzalari okunamadi")
+    parts.append("</interface>")
+    parts.append(STATIC_IFACES)
+    parts.append("</node>")
+    return "".join(parts), sig
 
 _counter = itertools.count()
 
@@ -229,18 +260,21 @@ class PortalRecorder:
     async def _hold_session(self) -> None:
         bus = await MessageBus(bus_type=BusType.SESSION, negotiate_unix_fd=True).connect()
         try:
-            proxy = bus.get_proxy_object(BUS, OBJ, XML)
+            xml, sig = await _discover_proxy(bus)
+            proxy = bus.get_proxy_object(BUS, OBJ, xml)
             sc = proxy.get_interface("org.freedesktop.portal.ScreenCast")
 
             req = await _resolve_call(sc, "call_create_session")(
                 {"session_handle_token": Variant("s", _new_token())}
             )
-            code, results = await self._await_response(bus, req, 30)
+            code, results = await self._await_response(bus, xml, req, 30)
             if code != 0:
                 raise RuntimeError("portal oturumu reddedildi")
             session = results["session_handle"].value
 
             req = await _resolve_call(sc, "call_select_sources")(
+                # Somut tiplere (s/o) duz deger verilir; Variant sadece
+                # a{sv} gibi variant tasiyan alanlarin icinde kullanilir.
                 session,
                 {
                     "types": Variant("u", 1),  # 1 = monitor (tam ekran)
@@ -248,14 +282,18 @@ class PortalRecorder:
                     "handle_token": Variant("s", _new_token()),
                 },
             )
-            code, _ = await self._await_response(bus, req, 30)
+            code, _ = await self._await_response(bus, xml, req, 30)
             if code != 0:
                 raise RuntimeError("kaynak secimi reddedildi")
 
-            req = await _resolve_call(sc, "call_start")(
-                "", session, {"handle_token": Variant("s", _new_token())}
-            )
-            code, results = await self._await_response(bus, req, self.dialog_timeout)
+            start_vals = {
+                "session_handle": session,
+                "parent_window": "",
+                "options": {"handle_token": Variant("s", _new_token())},
+            }
+            start_args = [start_vals[n] for n, _t in sig["Start"]]
+            req = await _resolve_call(sc, "call_start")(*start_args)
+            code, results = await self._await_response(bus, xml, req, self.dialog_timeout)
             if code == 1:
                 raise RuntimeError("kullanici ekran paylasimini iptal etti")
             if code != 0:
@@ -277,7 +315,7 @@ class PortalRecorder:
             await loop.run_in_executor(None, self._stop_event.wait)
 
             try:
-                sess_proxy = bus.get_proxy_object(BUS, session, XML)
+                sess_proxy = bus.get_proxy_object(BUS, session, xml)
                 await sess_proxy.get_interface(
                     "org.freedesktop.portal.Session"
                 ).call_close()
@@ -286,8 +324,8 @@ class PortalRecorder:
         finally:
             bus.disconnect()
 
-    async def _await_response(self, bus: MessageBus, req_path: str, timeout: float):
-        proxy = bus.get_proxy_object(BUS, req_path, XML)
+    async def _await_response(self, bus: MessageBus, xml: str, req_path: str, timeout: float):
+        proxy = bus.get_proxy_object(BUS, req_path, xml)
         rq = proxy.get_interface("org.freedesktop.portal.Request")
         fut = asyncio.get_running_loop().create_future()
 

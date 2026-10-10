@@ -20,7 +20,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.cfg = cfg or AppConfig()
         self.rec = create_backend(self.cfg)
-        self.setWindowTitle("CastMane - crash-safe kayit (MVP)")
+        self.setWindowTitle("CastMane")
         self.resize(420, 200)
 
         self.status_lbl = QLabel(f"Hazir [{self.rec.name}]. Cikti: ~/Videos/CastMane")
