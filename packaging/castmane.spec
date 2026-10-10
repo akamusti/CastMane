@@ -14,7 +14,7 @@ ROOT = SPEC_DIR.parent
 SRC = ROOT / "src"
 
 a = Analysis(
-    [str(SRC / "castmane" / "__main__.py")],
+    [str(SPEC_DIR / "app_entry.py")],
     pathex=[str(SRC)],
     binaries=[],
     datas=[(str(SRC / "castmane" / "assets" / "logo.png"), "castmane/assets")],
