@@ -69,7 +69,8 @@ class MainWindow(QMainWindow):
             except Exception as e:  # noqa: BLE001
                 self.status_lbl.setText(f"Baslatilamadi: {e}")
                 return
-            self.status_lbl.setText(f"Kaydediliyor -> {final.name}.part")
+            tmp = self.rec.state.tmp_path
+            self.status_lbl.setText(f"Kaydediliyor -> {tmp.name if tmp else final.name}")
             self.rec_btn.setText("■ Durdur")
             self.timer.start()
         else:

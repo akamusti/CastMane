@@ -38,6 +38,7 @@ class RecordingState:
     active: bool = False
     final_path: Path | None = None
     tmp_path: Path | None = None
+    mkv_path: Path | None = None  # portal backend ara urunu (MKV)
     started_at: float = 0.0
     last_error: str = ""
 

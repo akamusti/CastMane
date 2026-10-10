@@ -13,20 +13,26 @@ Klasik kaydediciler MP4 kapsayıcısını (`moov` atomu) ancak kayıt düzgün
 biterse yazar. Process crash yerse ya da kill edilirse dosya oynatılamaz.
 CastMane bunun yerine:
 
-1. **Parçalı (fragmented) MP4** yazar (`frag_keyframe+empty_moov`,
-   `mp4mux fragment-duration`) — dosyanın her parçası tek başına oynatılabilir.
+1. Kaydı **crash'e dayanıklı kapsayıcıda** biriktirir — X11'de parçalı MP4
+   (`frag_keyframe+empty_moov`), Wayland'da MKV (`matroskamux`; PipeWire'ın
+   verdiği damgasız ilk kareyi tolere eder) — dosyanın her parçası tek başına
+   oynatılabilir, sonra MP4 teslim edilir.
 2. Kaydı **`.part` dosyasına** yapar, düzgün stop sonrası **atomik rename** ile
    finale taşır. Yarım kalan `.part` dosyası yine izlenebilir.
 3. Encoder'ı **nazikçe durdurur** (önce `SIGINT`, trailer yazılsın diye) ve
    encoder process'ini izler; beklenmedik ölüm sessizce geçiştirilmez, raporlanır.
 
 > Kanıtlandı: `kill -9` ile öldürülen kayıt tamamen oynatılabilir kalıyor
-> (`h264`, `ffprobe` ile doğrulandı). Detay için [Crash-güvenliği](#crash-güvenliği).
+> (`h264`, `ffprobe` ile doğrulandı). Wayland hattı MKV kaydeder, çünkü
+> PipeWire'ın verdiği damgasız ilk karede `mp4mux` "Buffer has no PTS" diye
+> ölür; MKV duruşta `ffmpeg -c copy` ile MP4'e çevrilir.
+> Detay için [Crash-güvenliği](#crash-güvenliği).
 
 ## Özellikler
 
 - 🖥️ **Wayland**'da tam ekran kayıt: `xdg-desktop-portal` ScreenCast +
-  GStreamer (`pipewiresrc → openh264enc → mp4mux`) — OBS yok, eklenti yok
+  GStreamer (`pipewiresrc → openh264enc → matroskamux`), duruşta kayıpsız
+  MP4 remux — OBS yok, eklenti yok
 - 🖥️ **X11 yedeği**: `ffmpeg` (`x11grab`), otomatik seçilir
 - 🛡️ Crash-safe çıktı hattı (parçalı MP4, `.part` staging, atomik rename,
   encoder izcisi)
@@ -64,25 +70,28 @@ D-Bus üzerinden (`dbus-next`) konuşur ve GStreamer'ı alt proses olarak
 3. **Durdur**'a basın. Bitmiş dosya `~/Videos/CastMane` altındadır.
 
 Kayıt yarıda kesilirse (crash, elektrik kesintisi, `kill -9`) aynı klasördeki
-`*.mp4.part` dosyasına bakın — aynen oynatılır. Yeniden adlandırmanız yeterli.
+`*.mkv.part` (Wayland) ya da `*.mp4.part` (X11) dosyasına bakın — aynen oynatılır.
+Yeniden adlandırmanız yeterli (Wayland'da isterseniz MP4'e çevirin:
+`ffmpeg -i dosya.mkv.part -c copy dosya.mp4`).
 
 ## Crash-güvenliği
 
 | Katman | Mekanizma |
 |---|---|
-| Kapsayıcı | Parçalı MP4: `moov` sonda bir kez değil, aralara serpiştirilerek yazılır |
+| Kapsayıcı | MKV staging (`matroskamux` eksik damgaları tolere eder), düzgün stop'ta kayıpsız `ffmpeg -c copy` ile MP4 |
 | Dosya taşıma | `X.mp4.part` dosyasına yaz, düzgün stop'ta `os.replace()` ile `X.mp4` yap |
 | Kapatma | `SIGINT` → bekle → `SIGTERM` → `SIGKILL` kademesi |
 | İzleme | Encoder izcisi erken ölümleri son log satırlarıyla raporlar |
 
-Kanıtı kendiniz tekrarlayın:
+Kanıtı kendiniz tekrarlayın (canlı MKV kaydını öldürüp remux edin):
 
 ```bash
 gst-launch-1.0 videotestsrc is-live=true ! videoconvert ! openh264enc \
-  ! h264parse ! mp4mux fragment-duration=1000 \
-  ! filesink location=kanit.mp4.part &
+  ! h264parse ! matroskamux ! filesink location=kanit.mkv.part &
 sleep 4; kill -9 $!
-ffprobe -v error -show_entries stream=codec_name,width,height kanit.mp4.part
+ffprobe -v error -show_entries stream=codec_name kanit.mkv.part
+ffmpeg -y -v error -i kanit.mkv.part -c copy kanit.mp4
+ffprobe -v error -show_entries stream=codec_name,duration kanit.mp4
 ```
 
 ## Mimari
@@ -94,6 +103,7 @@ src/castmane/
 ├── recorder.py          # Crash-safe çekirdek: FfmpegX11Recorder + finalize_part()
 ├── backends/__init__.py # create_backend(): Wayland'da portal, X11'de ffmpeg
 └── backends/portal.py   # PortalRecorder: ScreenCast D-Bus + gst-launch hattı
+                           (MKV kayıt, duruşta MP4 remux)
 ```
 
 Portal imzaları çalışma anında broker'dan okunur (`session_handle` tipi,

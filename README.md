@@ -14,8 +14,10 @@ Classic recorders finalize the MP4 container (`moov` atom) only when recording
 stops cleanly. Crash or `kill` the process and the file is unplayable. CastMane
 instead:
 
-1. Writes **fragmented MP4** (`frag_keyframe+empty_moov`, `mp4mux fragment-duration`),
-   so every chunk of the file is playable on its own.
+1. Stages the recording in a **crash-tolerant container** — fragmented MP4 on
+   X11 (`frag_keyframe+empty_moov`), MKV on Wayland (`matroskamux`, which
+   tolerates the timestamp-less first frame PipeWire delivers) — so every
+   chunk is playable on its own, then delivers MP4.
 2. Records to a **`.part` file** and renames it to the final name **atomically**
    only after a clean stop. A leftover `.part` file is still watchable.
 3. Stops the encoder **gracefully** (`SIGINT` first, trailer included) and watches
@@ -23,12 +25,16 @@ instead:
    losing footage.
 
 > Verified: a recording killed with `kill -9` remains fully playable
-> (`h264`, `ffprobe`-checked). See [Crash-safety](#crash-safety) below.
+> (`h264`, `ffprobe`-checked). The Wayland pipeline records MKV because
+> `mp4mux` aborts on the timestamp-less first frame PipeWire delivers
+> ("Buffer has no PTS"); the MKV is remuxed to MP4 with `ffmpeg -c copy`
+> on clean stop. See [Crash-safety](#crash-safety) below.
 
 ## Features
 
 - 🖥️ Full-screen recording on **Wayland** via `xdg-desktop-portal` ScreenCast +
-  GStreamer (`pipewiresrc → openh264enc → mp4mux`) — no OBS, no compositor plugins
+  GStreamer (`pipewiresrc → openh264enc → matroskamux`), remuxed losslessly to
+  MP4 on stop — no OBS, no compositor plugins
 - 🖥️ **X11 fallback** via `ffmpeg` (`x11grab`), selected automatically
 - 🛡️ Crash-safe output pipeline (fragmented MP4, `.part` staging, atomic rename,
   encoder watchdog)
@@ -65,25 +71,28 @@ so `PyGObject` is not needed.
 3. Press **Stop**. The finished file lands in `~/Videos/CastMane`.
 
 If recording is interrupted (crash, power loss, `kill -9`), look for the
-`*.mp4.part` file in the same folder — it plays as-is. Just rename it.
+`*.mkv.part` (Wayland) or `*.mp4.part` (X11) file in the same folder — it plays
+as-is. Just rename it (and on Wayland, optionally remux to MP4 yourself:
+`ffmpeg -i file.mkv.part -c copy file.mp4`).
 
 ## Crash-safety
 
 | Layer | Mechanism |
 |---|---|
-| Container | Fragmented MP4: `moov` is interleaved, not written once at the end |
+| Container | MKV staging (`matroskamux` tolerates missing timestamps), MP4 via lossless `ffmpeg -c copy` remux on clean stop |
 | File handling | Write to `X.mp4.part`, `os.replace()` to `X.mp4` only on clean stop |
 | Shutdown | `SIGINT` → wait → `SIGTERM` → `SIGKILL` escalation |
 | Monitoring | Encoder watchdog reports early exits with the last log lines |
 
-Reproduce the proof yourself:
+Reproduce the proof yourself (kill a live MKV recording, then remux):
 
 ```bash
 gst-launch-1.0 videotestsrc is-live=true ! videoconvert ! openh264enc \
-  ! h264parse ! mp4mux fragment-duration=1000 \
-  ! filesink location=proof.mp4.part &
+  ! h264parse ! matroskamux ! filesink location=proof.mkv.part &
 sleep 4; kill -9 $!
-ffprobe -v error -show_entries stream=codec_name,width,height proof.mp4.part
+ffprobe -v error -show_entries stream=codec_name proof.mkv.part
+ffmpeg -y -v error -i proof.mkv.part -c copy proof.mp4
+ffprobe -v error -show_entries stream=codec_name,duration proof.mp4
 ```
 
 ## Architecture
@@ -95,6 +104,7 @@ src/castmane/
 ├── recorder.py          # Crash-safe core: FfmpegX11Recorder + finalize_part()
 ├── backends/__init__.py # create_backend(): portal on Wayland, ffmpeg on X11
 └── backends/portal.py   # PortalRecorder: ScreenCast D-Bus + gst-launch pipe
+                           (MKV record, MP4 remux on stop)
 ```
 
 Portal signatures are discovered from the broker at runtime

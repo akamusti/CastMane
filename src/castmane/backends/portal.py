@@ -4,8 +4,10 @@ Neden bu mimari?
 - Sistem ffmpeg'inde pipewire demuxer yok, ama GStreamer'da `pipewiresrc` var.
 - Portal diyafonu (D-Bus) saf Python (`dbus-next`) ile yapiliyor,
   video hatti `gst-launch-1.0` alt prosesi: PyGObject'e gerek yok.
-- Crash-safe: `mp4mux fragment-duration` ile parcali MP4 + `.part`
-  dosyasi + atomic rename (`recorder.finalize_part`).
+- Crash-safe: `matroskamux` ile MKV kaydi (PTS'siz ilk kareyi tolere
+  eder; mp4mux'un "Buffer has no PTS" hatasi yasanmaz) + `.part`
+  dosyasi + atomic rename. Duzgun stop'ta `ffmpeg -c copy` ile hizli
+  MP4 remux; remux yarida kalirsa saglam MKV elde kalir.
 
 Portal akisi: CreateSession -> SelectSources(monitor) -> Start
 (kullanici secim diyafonu) -> OpenPipeWireRemote -> (node_id, fd).
@@ -146,7 +148,10 @@ class PortalRecorder:
         if self.state.active:
             raise RuntimeError("zaten kayit aktif")
         final = self.cfg.next_output_path(".mp4")
-        tmp = self.cfg.tmp_path_for(final)
+        # Kayit MKV'ya yapilir (mp4mux PTS'siz ilk karede olur),
+        # stop'ta MP4'e remux edilir. Ara dosya: X.mkv.part
+        tmp_mkv = final.with_suffix(".mkv.part")
+        mkv_final = final.with_suffix(".mkv")
 
         self._result = {}
         self._stop_event.clear()
@@ -157,7 +162,7 @@ class PortalRecorder:
         node, fd = self._wait_for_stream()
         self._pw_fd = fd
 
-        cmd = self.build_cmd(node, fd, tmp)
+        cmd = self.build_cmd(node, fd, tmp_mkv)
         self._proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -171,15 +176,15 @@ class PortalRecorder:
             raise RuntimeError(f"GStreamer hatti kurulamadi: {death}")
 
         self.state = RecordingState(
-            active=True, final_path=final, tmp_path=tmp,
-            started_at=time.time(),
+            active=True, final_path=final, tmp_path=tmp_mkv,
+            mkv_path=mkv_final, started_at=time.time(),
         )
         return final
 
     def stop(self) -> Path | None:
         if not self.state.active or self._proc is None:
             return None
-        # Once nazik SIGINT (mp4 trailer yazilir), olmazsa sert kapat.
+        # Once nazik SIGINT (muxer trailer yazsin), olmazsa sert kapat.
         self._proc.send_signal(signal.SIGINT)
         try:
             self._proc.wait(timeout=6)
@@ -199,11 +204,34 @@ class PortalRecorder:
             except OSError:
                 pass
             self._pw_fd = -1
-        assert self.state.tmp_path and self.state.final_path
-        done = finalize_part(self.state.tmp_path, self.state.final_path)
-        if done is None:
+        assert self.state.tmp_path and self.state.final_path and self.state.mkv_path
+        mkv = finalize_part(self.state.tmp_path, self.state.mkv_path)
+        if mkv is None:
             self.state.last_error = "cikti dosyasi olusmadi"
-        return done
+            return None
+        # Hizli kayipsiz remux: MKV -> MP4. Basarisiz olursa saglam
+        # MKV'yi teslim et (kullanicinin goruntusu kaybolmasin).
+        if self._remux(mkv, self.state.final_path):
+            try:
+                mkv.unlink()
+            except OSError:
+                pass
+            return self.state.final_path
+        self.state.last_error = "MP4 remux basarisiz, MKV teslim edildi"
+        return mkv
+
+    def _remux(self, mkv: Path, mp4: Path) -> bool:
+        try:
+            r = subprocess.run(
+                ["ffmpeg", "-y", "-v", "error", "-i", str(mkv),
+                 "-c", "copy", str(mp4)],
+                capture_output=True, timeout=180,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return False
+        return (
+            r.returncode == 0 and mp4.exists() and mp4.stat().st_size > 0
+        )
 
     # -- komut --
 
@@ -221,7 +249,9 @@ class PortalRecorder:
             "!", "queue",
             "!", "openh264enc", f"bitrate={self.cfg.video_bitrate_kbps * 1000}",
             "!", "h264parse",
-            "!", "mp4mux", f"fragment-duration={self.cfg.fragment_ms}",
+            # mp4mux PTS'siz ilk karede "Buffer has no PTS" diye olur;
+            # matroskamux tolere eder, MP4 stop'ta remux ile uretilir.
+            "!", "matroskamux",
             "!", "filesink", f"location={tmp}",
         ]
 
