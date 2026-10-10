@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QTimer, Qt
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -19,154 +20,178 @@ from PySide6.QtWidgets import (
 
 from .backends import create_backend, session_is_wayland
 from .config import AppConfig
+from .theme import (
+    ACCENT_CYAN,
+    ACCENT_GRADIENT,
+    ACCENT_INDIGO,
+    ACCENT_PURPLE,
+    BG_BASE,
+    BG_CARD,
+    BG_INPUT,
+    BORDER,
+    BORDER_HOVER,
+    TEXT_FAINT,
+    TEXT_MAIN,
+    TEXT_MUTED,
+    logo_path,
+)
 
-STYLESHEET = """
-QMainWindow, QWidget {
-    background-color: #15171c;
-    color: #e6e8ec;
+STYLESHEET = f"""
+QMainWindow, QWidget {{
+    background-color: {BG_BASE};
+    color: {TEXT_MAIN};
     font-family: "Noto Sans", "DejaVu Sans", "Liberation Sans", sans-serif;
     font-size: 13px;
-}
-QFrame#Card {
-    background-color: #1e222a;
-    border: 1px solid #2a303b;
+}}
+QFrame#Card {{
+    background-color: {BG_CARD};
+    border: 1px solid {BORDER};
     border-radius: 12px;
-}
-QFrame#AccentBar {
-    background-color: #3d8a53;
+}}
+QFrame#AccentBar {{
+    background-color: {ACCENT_GRADIENT};
     border-radius: 1px;
-}
-QFrame#Sep {
-    background-color: #2a303b;
+}}
+QFrame#Sep {{
+    background-color: {BORDER};
     border: none;
     max-height: 1px;
-}
-QLabel#StatusLabel {
-    color: #9aa4b2;
+}}
+QLabel#StatusLabel {{
+    color: {TEXT_MUTED};
     font-size: 12px;
-}
-QLabel#SectionTitle {
-    color: #aeb6c2;
+}}
+QLabel#SectionTitle {{
+    color: {TEXT_MUTED};
     font-size: 11px;
     font-weight: bold;
-}
-QLabel#OutputLabel {
-    color: #7f8896;
+}}
+QLabel#BrandTitle {{
+    color: {TEXT_MAIN};
+    font-size: 20px;
+    font-weight: bold;
+}}
+QLabel#BrandSubtitle {{
+    color: {TEXT_FAINT};
     font-size: 11px;
-}
-QLabel#TimeLabel {
-    color: #f2f4f8;
+}}
+QLabel#OutputLabel {{
+    color: {TEXT_FAINT};
+    font-size: 11px;
+}}
+QLabel#TimeLabel {{
+    color: {TEXT_MAIN};
     font-size: 46px;
     font-weight: bold;
-}
-QLabel#TimeLabel[recording="true"] {
-    color: #ff5f56;
-}
-QLabel#FieldLabel {
-    color: #9aa4b2;
-}
-QPushButton {
-    background-color: #272d38;
-    border: 1px solid #333b48;
+}}
+QLabel#TimeLabel[recording="true"] {{
+    color: {ACCENT_PURPLE};
+}}
+QLabel#FieldLabel {{
+    color: {TEXT_MUTED};
+}}
+QPushButton {{
+    background-color: {BG_INPUT};
+    border: 1px solid {BORDER};
     border-radius: 8px;
     padding: 7px 14px;
-    color: #e6e8ec;
-}
-QPushButton:hover {
-    background-color: #2f3745;
-    border-color: #404a5a;
-}
-QPushButton:pressed {
-    background-color: #232935;
-}
-QPushButton:disabled {
-    background-color: #1c2029;
-    color: #565e6b;
-    border-color: #262c36;
-}
-QPushButton#RecordButton {
-    background-color: #2f6b3f;
-    border: 1px solid #3d8a53;
+    color: {TEXT_MAIN};
+}}
+QPushButton:hover {{
+    background-color: #2D3459;
+    border-color: {BORDER_HOVER};
+}}
+QPushButton:pressed {{
+    background-color: #20264A;
+}}
+QPushButton:disabled {{
+    background-color: #1A1F3A;
+    color: #565E86;
+    border-color: {BORDER};
+}}
+QPushButton#RecordButton {{
+    background-color: {ACCENT_GRADIENT};
+    border: 1px solid {ACCENT_CYAN};
     border-radius: 10px;
     font-size: 16px;
     font-weight: bold;
     padding: 12px 24px;
     color: #ffffff;
-}
-QPushButton#RecordButton:hover {
-    background-color: #378049;
-    border-color: #4aa066;
-}
-QPushButton#RecordButton:pressed {
-    background-color: #265932;
-}
-QPushButton#RecordButton[recording="true"] {
+}}
+QPushButton#RecordButton:hover {{
+    background-color: {ACCENT_CYAN};
+    border-color: #7AD6FF;
+}}
+QPushButton#RecordButton:pressed {{
+    background-color: {ACCENT_INDIGO};
+}}
+QPushButton#RecordButton[recording="true"] {{
     background-color: #8c2f2a;
     border-color: #a83c35;
-}
-QPushButton#RecordButton[recording="true"]:hover {
+}}
+QPushButton#RecordButton[recording="true"]:hover {{
     background-color: #9d3630;
-}
-QPushButton#QuitButton {
+}}
+QPushButton#QuitButton {{
     background-color: transparent;
-    border-color: #333b48;
-    color: #9aa4b2;
-}
-QPushButton#QuitButton:hover {
-    background-color: #272d38;
-    color: #e6e8ec;
-}
-QComboBox {
-    background-color: #272d38;
-    border: 1px solid #333b48;
+    border-color: {BORDER};
+    color: {TEXT_MUTED};
+}}
+QPushButton#QuitButton:hover {{
+    background-color: {BG_INPUT};
+    color: {TEXT_MAIN};
+}}
+QComboBox {{
+    background-color: {BG_INPUT};
+    border: 1px solid {BORDER};
     border-radius: 8px;
     padding: 6px 10px;
     min-height: 20px;
-}
-QComboBox:hover {
-    border-color: #404a5a;
-}
-QComboBox::drop-down {
+}}
+QComboBox:hover {{
+    border-color: {BORDER_HOVER};
+}}
+QComboBox::drop-down {{
     border: none;
     width: 22px;
-}
-QComboBox QAbstractItemView {
-    background-color: #1f232b;
-    border: 1px solid #333b48;
-    selection-background-color: #2f6b3f;
+}}
+QComboBox QAbstractItemView {{
+    background-color: {BG_CARD};
+    border: 1px solid {BORDER};
+    selection-background-color: {ACCENT_INDIGO};
     selection-color: #ffffff;
     padding: 4px;
-}
-QSpinBox {
-    background-color: #272d38;
-    border: 1px solid #333b48;
+}}
+QSpinBox {{
+    background-color: {BG_INPUT};
+    border: 1px solid {BORDER};
     border-radius: 8px;
     padding: 5px 8px;
-}
-QSpinBox:hover {
-    border-color: #404a5a;
-}
-QCheckBox {
+}}
+QSpinBox:hover {{
+    border-color: {BORDER_HOVER};
+}}
+QCheckBox {{
     spacing: 8px;
     background: transparent;
-}
-QCheckBox::indicator {
+}}
+QCheckBox::indicator {{
     width: 16px;
     height: 16px;
     border-radius: 5px;
-    border: 1px solid #333b48;
-    background-color: #272d38;
-}
-QCheckBox::indicator:hover {
-    border-color: #404a5a;
-}
-QCheckBox::indicator:checked {
-    background-color: #2f6b3f;
-    border-color: #3d8a53;
-}
-QCheckBox:disabled {
-    color: #565e6b;
-}
+    border: 1px solid {BORDER};
+    background-color: {BG_INPUT};
+}}
+QCheckBox::indicator:hover {{
+    border-color: {BORDER_HOVER};
+}}
+QCheckBox::indicator:checked {{
+    background-color: {ACCENT_GRADIENT};
+    border-color: {ACCENT_CYAN};
+}}
+QCheckBox:disabled {{
+    color: #565E86;
+}}
 """
 
 
@@ -206,15 +231,42 @@ class MainWindow(QMainWindow):
         self.cfg = cfg or AppConfig()
         self.rec = create_backend(self.cfg)
         self.setWindowTitle("CastMane")
-        self.resize(460, 500)
-        self.setMinimumSize(420, 460)
+        self.resize(460, 560)
+        self.setMinimumSize(420, 500)
         self.setStyleSheet(STYLESHEET)
+        icon_path = logo_path()
+        if icon_path:
+            self.setWindowIcon(QIcon(icon_path))
 
         root = QWidget()
         self.setCentralWidget(root)
         outer = QVBoxLayout(root)
         outer.setContentsMargins(16, 16, 16, 16)
         outer.setSpacing(10)
+
+        # --- Marka satiri: logo + isim ---
+        brand = QWidget()
+        brand_row = QHBoxLayout(brand)
+        brand_row.setContentsMargins(2, 0, 2, 0)
+        brand_row.setSpacing(12)
+        self.logo_lbl = QLabel()
+        self.logo_lbl.setFixedSize(52, 52)
+        self.logo_lbl.setScaledContents(True)
+        if icon_path:
+            self.logo_lbl.setPixmap(QPixmap(icon_path))
+        brand_text = QVBoxLayout()
+        brand_text.setContentsMargins(0, 0, 0, 0)
+        brand_text.setSpacing(0)
+        brand_title = QLabel("CastMane")
+        brand_title.setObjectName("BrandTitle")
+        brand_sub = QLabel("Crash-safe screen recorder")
+        brand_sub.setObjectName("BrandSubtitle")
+        brand_text.addWidget(brand_title)
+        brand_text.addWidget(brand_sub)
+        brand_row.addWidget(self.logo_lbl)
+        brand_row.addLayout(brand_text)
+        brand_row.addStretch(1)
+        outer.addWidget(brand)
 
         # --- Ust kart: kronometre + durum ---
         self.time_lbl = QLabel("00:00")
