@@ -214,7 +214,9 @@ class PortalRecorder:
         # ogede birlesirse "hatali boru hatti: soz dizim hatasi" verir).
         return [
             "gst-launch-1.0",
-            "pipewiresrc", f"fd={fd}", f"path={node}",
+            # do-timestamp: PipeWire tamponlarinda PTS olmaz, mp4mux ister;
+            # boru hatti saatine gore damgala ("Buffer has no PTS" cozumu).
+            "pipewiresrc", f"fd={fd}", f"path={node}", "do-timestamp=true",
             "!", "videoconvert",
             "!", "queue",
             "!", "openh264enc", f"bitrate={self.cfg.video_bitrate_kbps * 1000}",
