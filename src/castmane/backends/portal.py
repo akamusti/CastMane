@@ -209,9 +209,12 @@ class PortalRecorder:
 
     def build_cmd(self, node: int, fd: int, tmp: Path) -> list[str]:
         # fd numarasi pass_fds ile cocuk proseste aynen korunur.
+        # gst-launch her argv ogesini ayri token sayar: oge ve ozellikler
+        # AYRI liste ogeleri olmali ("pipewiresrc fd=.. path=.." tek
+        # ogede birlesirse "hatali boru hatti: soz dizim hatasi" verir).
         return [
             "gst-launch-1.0",
-            f"pipewiresrc fd={fd} path={node}",
+            "pipewiresrc", f"fd={fd}", f"path={node}",
             "!", "videoconvert",
             "!", "queue",
             "!", "openh264enc", f"bitrate={self.cfg.video_bitrate_kbps * 1000}",
