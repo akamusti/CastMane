@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSpinBox,
     QVBoxLayout,
@@ -68,7 +69,7 @@ QLabel#SectionTitle {{
 }}
 QLabel#BrandTitle {{
     color: {TEXT_MAIN};
-    font-size: 20px;
+    font-size: 18px;
     font-weight: bold;
 }}
 QLabel#BrandSubtitle {{
@@ -81,7 +82,7 @@ QLabel#OutputLabel {{
 }}
 QLabel#TimeLabel {{
     color: {TEXT_MAIN};
-    font-size: 46px;
+    font-size: 40px;
     font-weight: bold;
 }}
 QLabel#TimeLabel[recording="true"] {{
@@ -231,27 +232,36 @@ class MainWindow(QMainWindow):
         self.cfg = cfg or AppConfig()
         self.rec = create_backend(self.cfg)
         self.setWindowTitle("CastMane")
-        self.resize(460, 560)
-        self.setMinimumSize(420, 500)
+        self.resize(460, 640)
+        self.setMinimumSize(320, 480)
         self.setStyleSheet(STYLESHEET)
         icon_path = logo_path()
         if icon_path:
             self.setWindowIcon(QIcon(icon_path))
 
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setFrameShape(QFrame.NoFrame)
+        self.setCentralWidget(scroll)
+
         root = QWidget()
-        self.setCentralWidget(root)
+        scroll.setWidget(root)
         outer = QVBoxLayout(root)
         outer.setContentsMargins(16, 16, 16, 16)
         outer.setSpacing(10)
 
         # --- Marka satiri: logo + isim ---
         brand = QWidget()
+        brand.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         brand_row = QHBoxLayout(brand)
         brand_row.setContentsMargins(2, 0, 2, 0)
         brand_row.setSpacing(12)
         self.logo_lbl = QLabel()
-        self.logo_lbl.setFixedSize(52, 52)
+        self.logo_lbl.setFixedSize(44, 44)
         self.logo_lbl.setScaledContents(True)
+        self.logo_lbl.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         if icon_path:
             self.logo_lbl.setPixmap(QPixmap(icon_path))
         brand_text = QVBoxLayout()
@@ -259,13 +269,15 @@ class MainWindow(QMainWindow):
         brand_text.setSpacing(0)
         brand_title = QLabel("CastMane")
         brand_title.setObjectName("BrandTitle")
+        brand_title.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         brand_sub = QLabel("Crash-safe screen recorder")
         brand_sub.setObjectName("BrandSubtitle")
+        brand_sub.setWordWrap(True)
+        brand_sub.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         brand_text.addWidget(brand_title)
         brand_text.addWidget(brand_sub)
         brand_row.addWidget(self.logo_lbl)
-        brand_row.addLayout(brand_text)
-        brand_row.addStretch(1)
+        brand_row.addLayout(brand_text, 1)
         outer.addWidget(brand)
 
         # --- Ust kart: kronometre + durum ---
@@ -273,14 +285,18 @@ class MainWindow(QMainWindow):
         self.time_lbl.setObjectName("TimeLabel")
         self.time_lbl.setAlignment(Qt.AlignCenter)
         self.time_lbl.setProperty("recording", False)
+        self.time_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.time_lbl.setMinimumWidth(0)
 
         self.status_lbl = QLabel(f"Hazir [{self.rec.name}]. Cikti: ~/Videos/CastMane")
         self.status_lbl.setObjectName("StatusLabel")
         self.status_lbl.setAlignment(Qt.AlignCenter)
         self.status_lbl.setWordWrap(True)
+        self.status_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
 
         top = QFrame()
         top.setObjectName("Card")
+        top.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         top_layout = QVBoxLayout(top)
         top_layout.setContentsMargins(20, 22, 20, 18)
         top_layout.setSpacing(6)
@@ -293,6 +309,7 @@ class MainWindow(QMainWindow):
         self.rec_btn.setObjectName("RecordButton")
         self.rec_btn.setProperty("recording", False)
         self.rec_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.rec_btn.setMinimumWidth(0)
         self.rec_btn.setCursor(Qt.PointingHandCursor)
         self.rec_btn.clicked.connect(self.toggle)
         outer.addWidget(self.rec_btn)
@@ -315,20 +332,30 @@ class MainWindow(QMainWindow):
         if idx >= 0:
             self.quality_cb.setCurrentIndex(idx)
         self.quality_cb.currentIndexChanged.connect(self._on_quality_changed)
+        for cb in (self.mode_cb, self.quality_cb):
+            cb.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            cb.setMinimumWidth(0)
+            cb.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
 
         src_card = QFrame()
         src_card.setObjectName("Card")
+        src_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         src_layout = QGridLayout(src_card)
         src_layout.setContentsMargins(18, 16, 18, 18)
         src_layout.setHorizontalSpacing(12)
         src_layout.setVerticalSpacing(8)
-        src_layout.setColumnMinimumWidth(0, 78)
+        src_layout.setColumnStretch(0, 0)
+        src_layout.setColumnStretch(1, 1)
 
         src_layout.addWidget(_section_header("KAYIT AYARLARI"), 0, 0, 1, 2)
         src_layout.addWidget(_separator(), 1, 0, 1, 2)
-        src_layout.addWidget(_field_label("Kaynak:"), 2, 0)
+        lbl_src = _field_label("Kaynak:")
+        lbl_src.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        src_layout.addWidget(lbl_src, 2, 0)
         src_layout.addWidget(self.mode_cb, 2, 1)
-        src_layout.addWidget(_field_label("Kalite:"), 3, 0)
+        lbl_q = _field_label("Kalite:")
+        lbl_q.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        src_layout.addWidget(lbl_q, 3, 0)
         src_layout.addWidget(self.quality_cb, 3, 1)
         outer.addWidget(src_card)
 
@@ -339,19 +366,23 @@ class MainWindow(QMainWindow):
 
         audio_row = QHBoxLayout()
         audio_row.setSpacing(10)
-        audio_row.addWidget(_field_label("Ses kazancı:"))
+        lbl_gain = _field_label("Ses kazancı:")
+        lbl_gain.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        audio_row.addWidget(lbl_gain)
         self.gain_spin = QSpinBox()
         self.gain_spin.setPrefix("%")
         self.gain_spin.setRange(10, 500)
         self.gain_spin.setSingleStep(10)
         self.gain_spin.setValue(int(self.cfg.audio_gain * 100))
         self.gain_spin.valueChanged.connect(self._on_gain_changed)
-        self.gain_spin.setFixedWidth(110)
+        self.gain_spin.setFixedWidth(100)
+        self.gain_spin.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         audio_row.addWidget(self.gain_spin)
         audio_row.addStretch(1)
 
         audio_card = QFrame()
         audio_card.setObjectName("Card")
+        audio_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         audio_layout = QVBoxLayout(audio_card)
         audio_layout.setContentsMargins(18, 16, 18, 18)
         audio_layout.setSpacing(8)
@@ -361,39 +392,44 @@ class MainWindow(QMainWindow):
         audio_layout.addLayout(audio_row)
         outer.addWidget(audio_card)
 
-        # --- X11 sabit bolge karti: W/H sifirsa tam ekran, yoksa WxH+X+Y. ---
+        # --- X11 sabit bolge karti: dar pencerede 2x2'ye sarilir. ---
         self.region_spins: dict[str, QSpinBox] = {}
-        region_row = QHBoxLayout()
-        region_row.setSpacing(8)
-        region_row.addWidget(_field_label("Bölge (X11):"))
-        for key, maximum, value in (
-            ("x", 10000, self.cfg.region_x),
-            ("y", 10000, self.cfg.region_y),
-            ("w", 10000, self.cfg.region_w),
-            ("h", 10000, self.cfg.region_h),
+        region_grid = QGridLayout()
+        region_grid.setSpacing(8)
+        for i, (key, maximum, value) in enumerate(
+            (
+                ("x", 10000, self.cfg.region_x),
+                ("y", 10000, self.cfg.region_y),
+                ("w", 10000, self.cfg.region_w),
+                ("h", 10000, self.cfg.region_h),
+            )
         ):
             spin = QSpinBox()
             spin.setPrefix(f"{key.upper()}=")
             spin.setRange(0, maximum)
             spin.setValue(value)
             spin.valueChanged.connect(self._on_region_changed)
-            spin.setMinimumWidth(74)
+            spin.setMinimumWidth(0)
+            spin.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             spin.setAlignment(Qt.AlignCenter)
             self.region_spins[key] = spin
-            region_row.addWidget(spin)
-        region_row.addStretch(1)
+            region_grid.addWidget(spin, i // 2, i % 2)
 
         region_hint = QLabel("Boş/0 değerler tam ekran demektir")
         region_hint.setObjectName("OutputLabel")
+        region_hint.setWordWrap(True)
 
         region_card = QFrame()
         region_card.setObjectName("Card")
+        region_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         region_layout = QVBoxLayout(region_card)
         region_layout.setContentsMargins(18, 16, 18, 18)
         region_layout.setSpacing(8)
         region_layout.addWidget(_section_header("BÖLGE"))
         region_layout.addWidget(_separator())
-        region_layout.addLayout(region_row)
+        lbl_region = _field_label("Bölge (X11):")
+        region_layout.addWidget(lbl_region)
+        region_layout.addLayout(region_grid)
         region_layout.addWidget(region_hint)
         outer.addWidget(region_card)
 
@@ -403,6 +439,7 @@ class MainWindow(QMainWindow):
         outcome_lbl.setObjectName("OutputLabel")
         outcome_lbl.setAlignment(Qt.AlignCenter)
         outcome_lbl.setWordWrap(True)
+        outcome_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         outer.addWidget(outcome_lbl)
 
         # --- Alt butonlar ---
@@ -410,17 +447,22 @@ class MainWindow(QMainWindow):
         self.pause_btn.setEnabled(False)
         self.pause_btn.setCursor(Qt.PointingHandCursor)
         self.pause_btn.clicked.connect(self.toggle_pause)
+        self.pause_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.pause_btn.setMinimumWidth(0)
 
         quit_btn = QPushButton("Çıkış")
         quit_btn.setObjectName("QuitButton")
         quit_btn.setCursor(Qt.PointingHandCursor)
         quit_btn.clicked.connect(self.close)
+        quit_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        quit_btn.setMinimumWidth(0)
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
         btn_row.addWidget(self.pause_btn, 1)
-        btn_row.addWidget(quit_btn)
+        btn_row.addWidget(quit_btn, 0)
         outer.addLayout(btn_row)
+        outer.addStretch(1)
 
         self.timer = QTimer(self)
         self.timer.setInterval(500)
