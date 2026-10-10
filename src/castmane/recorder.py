@@ -58,16 +58,30 @@ class FfmpegX11Recorder:
 
     def build_cmd(self, tmp: Path) -> list[str]:
         display = os.environ.get("DISPLAY", ":0")
-        return [
+        cmd = [
             "ffmpeg", "-y",
             "-f", "x11grab",
             "-framerate", str(self.cfg.fps),
             "-i", display,
+        ]
+        if self.cfg.audio_enabled:
+            # PulseAudio uyumlulugu uzerinden (PipeWire saglar):
+            # "auto"/"default"/"mic" -> varsayilan kaynak, yoksa verilen cihaz.
+            src = self.cfg.audio_source
+            if src in ("", "auto", "default", "mic"):
+                src = "default"
+            cmd += ["-f", "pulse", "-i", src]
+        cmd += [
             "-c:v", self.cfg.video_codec,
             "-pix_fmt", "yuv420p",
+        ]
+        if self.cfg.audio_enabled:
+            cmd += ["-c:a", "aac", "-b:a", f"{self.cfg.audio_bitrate_kbps}k"]
+        cmd += [
             "-movflags", self.cfg.movflags,
             str(tmp),
         ]
+        return cmd
 
     def start(self) -> Path:
         if self.state.active:

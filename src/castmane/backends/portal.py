@@ -240,7 +240,10 @@ class PortalRecorder:
         # gst-launch her argv ogesini ayri token sayar: oge ve ozellikler
         # AYRI liste ogeleri olmali ("pipewiresrc fd=.. path=.." tek
         # ogede birlesirse "hatali boru hatti: soz dizim hatasi" verir).
-        return [
+        # Ses aciksa matroskamux'a ikinci dal baglanir (adlandirilmis mux):
+        # video ... ! mux. + audio pulsesrc ... ! mux.
+        # AAC secildi: MKV'da da MP4 remux'ta da kayipsiz `-c copy` ile tasinir.
+        cmd = [
             "gst-launch-1.0",
             # do-timestamp: PipeWire tamponlarinda PTS olmaz, mp4mux ister;
             # boru hatti saatine gore damgala ("Buffer has no PTS" cozumu).
@@ -251,9 +254,26 @@ class PortalRecorder:
             "!", "h264parse",
             # mp4mux PTS'siz ilk karede "Buffer has no PTS" diye olur;
             # matroskamux tolere eder, MP4 stop'ta remux ile uretilir.
-            "!", "matroskamux",
-            "!", "filesink", f"location={tmp}",
+            "!", "queue",
+            "!",
         ]
+        if self.cfg.audio_enabled:
+            cmd += ["matroskamux", "name=mux", "!", "filesink", f"location={tmp}"]
+            audio_src = self.cfg.audio_source
+            audio_branch: list[str] = ["pulsesrc"]
+            if audio_src not in ("", "auto", "default", "mic"):
+                audio_branch.append(f"device={audio_src}")
+            cmd += audio_branch + [
+                "!", "audioconvert",
+                "!", "audioresample",
+                "!", "queue",
+                "!", "avenc_aac", f"bitrate={self.cfg.audio_bitrate_kbps * 1000}",
+                "!", "aacparse",
+                "!", "mux.",
+            ]
+        else:
+            cmd += ["matroskamux", "!", "filesink", f"location={tmp}"]
+        return cmd
 
     # -- ic mekanizma --
 

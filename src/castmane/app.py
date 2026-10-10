@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -33,6 +34,10 @@ class MainWindow(QMainWindow):
         self.rec_btn.setStyleSheet("font-size: 16px; padding: 10px;")
         self.rec_btn.clicked.connect(self.toggle)
 
+        self.audio_cb = QCheckBox("Sesli kaydet (mikrofon)")
+        self.audio_cb.setChecked(self.cfg.audio_enabled)
+        self.audio_cb.toggled.connect(self._on_audio_toggled)
+
         quit_btn = QPushButton("Cikis")
         quit_btn.clicked.connect(self.close)
 
@@ -43,6 +48,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout()
         layout.addWidget(self.time_lbl)
         layout.addWidget(self.status_lbl)
+        layout.addWidget(self.audio_cb)
         layout.addLayout(btn_row)
 
         root = QWidget()
@@ -72,15 +78,25 @@ class MainWindow(QMainWindow):
             tmp = self.rec.state.tmp_path
             self.status_lbl.setText(f"Kaydediliyor -> {tmp.name if tmp else final.name}")
             self.rec_btn.setText("■ Durdur")
+            self.audio_cb.setEnabled(False)
             self.timer.start()
         else:
             out = self.rec.stop()
             self.timer.stop()
+            self.audio_cb.setEnabled(True)
             if out:
                 self.status_lbl.setText(f"Kurtarildi: {out}")
             else:
                 self.status_lbl.setText(f"Hata: {self.rec.state.last_error}")
             self.rec_btn.setText("● Kayda Basla")
+
+    def _on_audio_toggled(self, checked: bool) -> None:
+        self.cfg.audio_enabled = checked
+        # Backend cfg'yi referans tutar; kayit sirasi degisiklik engellenir.
+        try:
+            self.rec.cfg.audio_enabled = checked
+        except AttributeError:
+            pass
 
     def tick(self) -> None:
         if self.rec.state.active:
