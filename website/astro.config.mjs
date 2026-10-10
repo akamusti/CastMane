@@ -60,6 +60,11 @@ export default defineConfig({
           translations: { tr: 'Referans' },
           items: [{ slug: 'reference/architecture' }],
         },
+        {
+          label: 'Legal',
+          translations: { tr: 'Yasal' },
+          items: [{ slug: 'legal/privacy' }],
+        },
       ],
     }),
   ],
