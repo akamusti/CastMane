@@ -22,6 +22,17 @@ from pathlib import Path
 from .config import AppConfig
 
 
+def finalize_part(tmp: Path, final: Path) -> Path | None:
+    """Crash-safe bitis: `.part` saglikliysa atomic rename ile finale tasinir.
+
+    Kill/crash durumunda `.part` dosyasi yerinde kalir ve fragmented
+    MP4 sayesinde oynatilabilir olur."""
+    if tmp.exists() and tmp.stat().st_size > 0:
+        os.replace(tmp, final)
+        return final
+    return None
+
+
 @dataclass
 class RecordingState:
     active: bool = False
@@ -34,6 +45,8 @@ class RecordingState:
 class FfmpegX11Recorder:
     """X11 fallback backend. Wayland'da calismaz (siyah ekran verir),
     ama cekirdek crash-safe mantigini test etmek icin birebir."""
+
+    name = "ffmpeg (X11)"
 
     def __init__(self, cfg: AppConfig) -> None:
         self.cfg = cfg
@@ -101,11 +114,10 @@ class FfmpegX11Recorder:
                 self._proc.kill()
         self.state.active = False
         assert self.state.tmp_path and self.state.final_path
-        if self.state.tmp_path.exists() and self.state.tmp_path.stat().st_size > 0:
-            os.replace(self.state.tmp_path, self.state.final_path)
-            return self.state.final_path
-        self.state.last_error = "cikti dosyasi olusmadi"
-        return None
+        done = finalize_part(self.state.tmp_path, self.state.final_path)
+        if done is None:
+            self.state.last_error = "cikti dosyasi olusmadi"
+        return done
 
     @property
     def elapsed(self) -> float:

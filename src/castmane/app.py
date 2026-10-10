@@ -11,19 +11,19 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .backends import create_backend, session_is_wayland
 from .config import AppConfig
-from .recorder import FfmpegX11Recorder
 
 
 class MainWindow(QMainWindow):
     def __init__(self, cfg: AppConfig | None = None) -> None:
         super().__init__()
         self.cfg = cfg or AppConfig()
-        self.rec = FfmpegX11Recorder(self.cfg)
+        self.rec = create_backend(self.cfg)
         self.setWindowTitle("CastMane - crash-safe kayit (MVP)")
         self.resize(420, 200)
 
-        self.status_lbl = QLabel("Hazir. Cikti: ~/Videos/CastMane")
+        self.status_lbl = QLabel(f"Hazir [{self.rec.name}]. Cikti: ~/Videos/CastMane")
         self.status_lbl.setAlignment(Qt.AlignCenter)
         self.time_lbl = QLabel("00:00")
         self.time_lbl.setAlignment(Qt.AlignCenter)
@@ -53,12 +53,10 @@ class MainWindow(QMainWindow):
         self.timer.setInterval(500)
         self.timer.timeout.connect(self.tick)
 
-        wayland = __import__("os").environ.get("WAYLAND_DISPLAY")
-        xdg = __import__("os").environ.get("XDG_SESSION_TYPE")
-        if wayland or xdg == "wayland":
+        if not session_is_wayland():
             self.status_lbl.setText(
-                "Wayland algilandi: bu MVP X11 backend kullaniyor. "
-                "Portal backend (faz-2) gelene kadar X11 oturumunda dene."
+                "X11 algilandi: ffmpeg backend aktif. "
+                "Wayland oturumunda portal backend devreye girer."
             )
 
     def toggle(self) -> None:
@@ -66,7 +64,7 @@ class MainWindow(QMainWindow):
             try:
                 final = self.rec.start()
             except FileNotFoundError:
-                self.status_lbl.setText("ffmpeg bulunamadi!")
+                self.status_lbl.setText("ffmpeg/gst-launch bulunamadi!")
                 return
             except Exception as e:  # noqa: BLE001
                 self.status_lbl.setText(f"Baslatilamadi: {e}")

@@ -8,6 +8,7 @@ requires-python = ">=3.10"
 dependencies = [
   "PySide6>=6.6",
   "PyGObject>=3.44",
+  "dbus-next>=0.2.3",  # Wayland ScreenCast portal istemcisi
 ]
 
 [project.optional-dependencies]

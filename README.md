@@ -10,17 +10,20 @@ CastMane iki kural uygular:
 1. **Fragmented MP4** (`frag_keyframe+empty_moov`): dosya parca parca oynatilabilir yazilir.
 2. **`.part` + atomic rename**: kayit `X.mp4.part` dosyasina yapilir, saglikli stop'ta `X.mp4` olur. Kill yese bile `.part` izlenebilir kalir.
 
-## Durum (v0.1 iskelet)
+## Durum (v0.2)
 
 - [x] Qt ana pencere (Rec/Stop, sure) — `src/castmane/app.py`
 - [x] Crash-safe cekirdek + X11 fallback (`ffmpeg x11grab`) — `src/castmane/recorder.py`
-- [ ] Wayland portal + GStreamer backend (`pipewiresrc ! openh264enc ! mp4mux`) — siradaki
+- [x] Wayland portal + GStreamer backend (`pipewiresrc ! openh264enc ! mp4mux`) — `src/castmane/backends/portal.py`
 - [ ] Ses (Pulse/PipeWire) — faz-2
 - [ ] Pencere/bolge secimi — faz-3
 
+Kanıt: `kill -9` ile oldurulen kayit bile oynatilabilir kalir
+(`mp4mux fragment-duration=1000` + `.part` + atomic rename).
+
 Ortam notu (Fedora 44 KDE Wayland): sistemdeki ffmpeg'te `pipewire` demuxer yok,
-ama GStreamer `pipewiresrc` + `openh264enc` + `mp4mux` mevcut. Wayland kaydi bu
-hat uzerinden yapilacak.
+o yuzden Wayland kaydi GStreamer `pipewiresrc` uzerinden yapiliyor.
+Kayda basinca sistemin ekran secim diyafonu acilir, ekrani secmen gerekir.
 
 ## Calistirma
 

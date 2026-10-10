@@ -14,6 +14,8 @@ class AppConfig:
     # process olse bile dosya oynatilabilir kaliyor.
     movflags: str = "frag_keyframe+empty_moov+default_base_moof"
     video_codec: str = "libopenh264"  # ffmpeg yuzu; GStreamer yuzu: openh264enc
+    video_bitrate_kbps: int = 8000  # portal/GStreamer hatti
+    fragment_ms: int = 1000  # mp4mux fragment-duration: crash'te dosya yasar
     audio_enabled: bool = False  # MVP: sessiz tam-ekran. Ses faz-2.
 
     def next_output_path(self, suffix: str = ".mp4") -> Path:
