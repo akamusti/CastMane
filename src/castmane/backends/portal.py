@@ -9,10 +9,12 @@ Neden bu mimari?
   dosyasi + atomic rename. Duzgun stop'ta `ffmpeg -c copy` ile hizli
   MP4 remux; remux yarida kalirsa saglam MKV elde kalir.
 
-Portal akisi: CreateSession -> SelectSources(monitor) -> Start
+Portal akisi: CreateSession -> SelectSources(monitor/window) -> Start
 (kullanici secim diyafonu) -> OpenPipeWireRemote -> (node_id, fd).
 Oturum, kayit boyunca acik tutulur (arka plan thread + asyncio loop);
-kapaninca PipeWire stream'i de olur.
+kapaninca PipeWire stream'i de olur. capture_mode "window" ise portal
+sadece pencere listeler, "ask" ise monitor+pencere secimini
+kullaniciya birakir.
 """
 from __future__ import annotations
 
@@ -332,7 +334,8 @@ class PortalRecorder:
                 # a{sv} gibi variant tasiyan alanlarin icinde kullanilir.
                 session,
                 {
-                    "types": Variant("u", 1),  # 1 = monitor (tam ekran)
+                    # 1=monitor (tam ekran), 2=pencere, 3=ikisini sor.
+                    "types": Variant("u", self.cfg.source_types()),
                     "multiple": Variant("b", False),
                     "handle_token": Variant("s", _new_token()),
                 },

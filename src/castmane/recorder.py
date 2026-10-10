@@ -58,9 +58,23 @@ class FfmpegX11Recorder:
 
     def build_cmd(self, tmp: Path) -> list[str]:
         display = os.environ.get("DISPLAY", ":0")
-        cmd = [
-            "ffmpeg", "-y",
-            "-f", "x11grab",
+        cmd = ["ffmpeg", "-y"]
+        if self.cfg.window_id > 0:
+            # Tek pencere: X11 pencere kimligi (örn. `xwininfo` ciktisi).
+            cmd += ["-window_id", str(self.cfg.window_id)]
+        cmd += ["-f", "x11grab"]
+        if self.cfg.region_w > 0 and self.cfg.region_h > 0:
+            # Sabit bolge: WxH + sol-ust kose.
+            cmd += [
+                "-video_size", f"{self.cfg.region_w}x{self.cfg.region_h}",
+                "-grab_x", str(self.cfg.region_x),
+                "-grab_y", str(self.cfg.region_y),
+                "-show_region", "1",
+            ]
+        elif self.cfg.capture_mode == "ask" and self.cfg.window_id <= 0:
+            # Etkilesimli: kullanici fareyle cerceveyi cizer.
+            cmd += ["-select_region", "1", "-show_region", "1"]
+        cmd += [
             "-framerate", str(self.cfg.fps),
             "-i", display,
         ]

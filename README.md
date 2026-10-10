@@ -39,6 +39,8 @@ instead:
 - 🛡️ Crash-safe output pipeline (fragmented MP4, `.part` staging, atomic rename,
   encoder watchdog)
 - 🪶 Minimal Qt interface: Record / Stop, elapsed timer, status line
+- 🪟 Capture source choice: full-screen, single window, or ask every time
+  (Wayland: portal dialog; X11: fixed region, window id, or drag-to-select)
 - 🔊 Optional audio capture (mic by default, system sound via monitor device),
   AAC in the same crash-safe MKV → MP4 pipeline
 - 📁 Timestamped files in `~/Videos/CastMane` (`castmane_YYYY-MM-DD_HH-MM-SS.mp4`)
@@ -68,9 +70,12 @@ so `PyGObject` is not needed.
 
 1. Start the app. The status line shows the active backend, e.g.
    `Ready [portal (Wayland)]`.
-2. Press **Record**. On Wayland, the system screen-share dialog appears —
-   pick the monitor and confirm (you have 180 seconds).
-3. Press **Stop**. The finished file lands in `~/Videos/CastMane`.
+2. Pick a source: **Full-screen**, **Window**, or **Ask / Select region**.
+   On Wayland the system dialog lists monitors or windows; on X11, *Ask*
+   opens a drag-to-select frame, or enter a fixed region (X/Y/W/H, `0` = full).
+3. Press **Record**. On Wayland, the system screen-share dialog appears —
+   pick the monitor or window and confirm (you have 180 seconds).
+4. Press **Stop**. The finished file lands in `~/Videos/CastMane`.
 
 If recording is interrupted (crash, power loss, `kill -9`), look for the
 `*.mkv.part` (Wayland) or `*.mp4.part` (X11) file in the same folder — it plays
@@ -118,8 +123,25 @@ across `xdg-desktop-portal` versions.
 - [x] Full-screen recording (Wayland + X11)
 - [x] Crash-safe output pipeline
 - [x] Audio capture (mic by default; system sound via `audio_source` monitor device)
-- [ ] Window / region selection
+- [x] Window / region selection
 - [ ] Pause / resume, configurable quality presets
+
+### Capture source
+
+```python
+from castmane.config import AppConfig
+cfg = AppConfig(capture_mode="window")  # "fullscreen" | "window" | "ask"
+# X11 fixed region (0 = full screen):
+# cfg = AppConfig(region_x=100, region_y=200, region_w=1280, region_h=720)
+# X11 single window (id from `xwininfo`):
+# cfg = AppConfig(capture_mode="window", window_id=123456)
+```
+
+On Wayland, `window` / `ask` switch the portal dialog from monitors to
+windows (or both). On X11, `ask` lets you drag the region with the mouse
+(`ffmpeg -select_region`), while `region_*` / `window_id` give scriptable
+control. Crash-safety is unchanged: region and window recordings still go
+through the `.part` + atomic-rename pipeline.
 
 ### Audio
 

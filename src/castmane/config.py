@@ -23,6 +23,26 @@ class AppConfig:
     # `pactl list short sources` ile listelenir.
     audio_source: str = "auto"
     audio_bitrate_kbps: int = 128  # AAC ses bitrate'i
+    # Kaynak secimi: "fullscreen" (monitor), "window" (pencere),
+    # "ask" (kullanicidan secmesi istenir).
+    # Wayland: portal SelectSources `types` bitmask'ine cevrilir
+    # (1=monitor, 2=window, 3=ikisi; sistem diyafonu acar).
+    # X11: "window" window_id gerektirir, "ask" fareyle bolge
+    # secimini acar (ffmpeg -select_region).
+    capture_mode: str = "fullscreen"
+    region_x: int = 0  # X11 sabit bolge sol-ust kose (0 = tam ekran)
+    region_y: int = 0
+    region_w: int = 0  # 0 = tam ekran genisligi
+    region_h: int = 0
+    window_id: int = 0  # X11: 0 disi deger tek pencere yakalar
+
+    def source_types(self) -> int:
+        """Portal SelectSources `types` bitmask'i."""
+        if self.capture_mode == "window":
+            return 2
+        if self.capture_mode == "ask":
+            return 3  # 1 | 2: monitor veya pencere
+        return 1  # fullscreen varsayilan
 
     def next_output_path(self, suffix: str = ".mp4") -> Path:
         self.output_dir.mkdir(parents=True, exist_ok=True)
