@@ -114,11 +114,12 @@ so `PyGObject` is not needed.
    pick the monitor or window and confirm (you have 180 seconds).
 4. **Press Stop.** The finished file lands in `~/Videos/CastMane`.
 
-## Language
+## Language & theme
 
-The interface is English by default. To switch to Turkish, pick
-**Türkçe** from the **Language** dropdown in Recording Settings.
-In code: `AppConfig(language="tr")`.
+The interface is English with the light theme by default. Open the
+**Settings** tab to switch language (**EN** / **TR**) or theme (**Light** /
+**Dark**) — both apply instantly and are remembered on next launch.
+In code: `AppConfig(language="tr", theme="dark")`.
 
 **Recovering an interrupted recording:** look for the `*.mkv.part` (Wayland)
 or `*.mp4.part` (X11) file in the same folder — it plays as-is. Just rename

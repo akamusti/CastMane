@@ -56,51 +56,51 @@ from PySide6.QtWidgets import (
 )
 
 from .backends import create_backend, session_is_wayland
+from . import theme as theme_mod
 from .config import AppConfig
 from .i18n import SUPPORTED_LANGUAGES, get as _get, normalize
 from .icons import paint_icon
 from .theme import (
-    BTN_BG,
-    BTN_BORDER,
-    BTN_DISABLED_BG,
-    BTN_DISABLED_TEXT,
-    BTN_HOVER,
-    BTN_PRESSED,
-    CANVAS,
     FONT_MONO,
     FONT_UI,
     FOOTER_H,
-    HAIRLINE,
-    HAIRLINE_STRONG,
     HEADER_H,
-    INK,
-    INK_HOVER,
-    INK_PRESSED,
     NAV_H,
-    PAUSED,
     RADIUS,
     RADIUS_LG,
     RADIUS_SM,
-    READY,
-    REC,
-    REC_BORDER,
-    REC_HOVER,
-    REC_PRESSED,
-    REC_TINT,
     SEGMENT_PAD,
     SEGMENT_TEXT_PAD,
     SIDEBAR_W,
-    SURFACE,
-    SURFACE_SUNKEN,
-    TEXT_FAINT,
-    TEXT_MAIN,
-    TEXT_MUTED,
-    TEXT_SOFT,
     logo_path,
     mark_path,
 )
 
-STYLESHEET = f"""
+def build_stylesheet(t: dict[str, str]) -> str:
+    """Render the full QSS for one theme colour table."""
+    CANVAS = t["CANVAS"]
+    SURFACE = t["SURFACE"]
+    SURFACE_SUNKEN = t["SURFACE_SUNKEN"]
+    HAIRLINE = t["HAIRLINE"]
+    HAIRLINE_STRONG = t["HAIRLINE_STRONG"]
+    TEXT_MAIN = t["TEXT_MAIN"]
+    TEXT_SOFT = t["TEXT_SOFT"]
+    TEXT_MUTED = t["TEXT_MUTED"]
+    TEXT_FAINT = t["TEXT_FAINT"]
+    INK = t["INK"]
+    INK_HOVER = t["INK_HOVER"]
+    INK_PRESSED = t["INK_PRESSED"]
+    PRIMARY_TEXT = t["PRIMARY_TEXT"]
+    BTN_BG = t["BTN_BG"]
+    BTN_BORDER = t["BTN_BORDER"]
+    BTN_HOVER = t["BTN_HOVER"]
+    BTN_PRESSED = t["BTN_PRESSED"]
+    BTN_DISABLED_BG = t["BTN_DISABLED_BG"]
+    BTN_DISABLED_TEXT = t["BTN_DISABLED_TEXT"]
+    REC = t["REC"]
+    REC_HOVER = t["REC_HOVER"]
+    REC_PRESSED = t["REC_PRESSED"]
+    return f"""
 QMainWindow, QWidget#Root {{
     background-color: {CANVAS};
     color: {TEXT_MAIN};
@@ -215,7 +215,7 @@ QPushButton#Record {{
     border: 1px solid {INK};
     border-radius: {RADIUS}px;
     padding: 10px 16px;
-    color: #FFFFFF;
+    color: {PRIMARY_TEXT};
     font-size: 14px;
     font-weight: 700;
 }}
@@ -266,7 +266,7 @@ QLineEdit, QSpinBox {{
     padding: 6px 9px;
     color: {TEXT_MAIN};
     selection-background-color: {INK};
-    selection-color: #FFFFFF;
+    selection-color: {PRIMARY_TEXT};
 }}
 QLineEdit:focus, QSpinBox:focus {{
     border-color: {TEXT_SOFT};
@@ -340,6 +340,19 @@ QToolTip {{
 }}
 """
 
+
+def _active_theme(widget: QWidget) -> dict[str, str]:
+    """Colour table of the window this widget lives in.
+
+    Paint code goes through here so a runtime theme switch repaints
+    every custom-drawn control without restarting the app.
+    """
+    win = widget.window()
+    t = getattr(win, "theme", None)
+    if isinstance(t, dict) and "CANVAS" in t:
+        return t
+    return theme_mod.get_theme(theme_mod.DEFAULT_THEME)
+
 LANGUAGE_LABELS = {"en": "EN", "tr": "TR"}
 
 
@@ -356,7 +369,7 @@ class StatusDot(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setFixedSize(10, 10)
-        self._color = QColor(READY)
+        self._color = QColor(theme_mod.READY)
 
     def set_color(self, color: str) -> None:
         self._color = QColor(color)
@@ -410,8 +423,9 @@ class Switch(QAbstractButton):
         w, h = float(self.width()), float(self.height())
         track = QRectF(0.5, 0.5, w - 1.0, h - 1.0)
 
-        off = QColor(SURFACE_SUNKEN)
-        on = QColor(INK)
+        t = _active_theme(self)
+        off = QColor(t["SURFACE_SUNKEN"])
+        on = QColor(t["INK"])
         mixed = QColor(
             round(off.red() + (on.red() - off.red()) * self._pos),
             round(off.green() + (on.green() - off.green()) * self._pos),
@@ -421,7 +435,7 @@ class Switch(QAbstractButton):
         p.setBrush(mixed)
         p.drawRoundedRect(track.adjusted(1.0, 1.0, -1.0, -1.0), 11, 11)
         p.setBrush(Qt.NoBrush)
-        p.setPen(QPen(QColor(HAIRLINE_STRONG), 1.0))
+        p.setPen(QPen(QColor(t["HAIRLINE_STRONG"]), 1.0))
         p.drawRoundedRect(track, 11.5, 11.5)
 
         knob = h - 8.0
@@ -504,11 +518,12 @@ class NavButton(QPushButton):
         self._icon = icon_name
 
     def _ink(self) -> QColor:
+        t = _active_theme(self)
         if not self.isEnabled():
-            return QColor(TEXT_FAINT)
+            return QColor(t["TEXT_FAINT"])
         if self.isChecked():
-            return QColor(TEXT_MAIN)
-        return QColor(TEXT_MUTED) if not self.underMouse() else QColor(TEXT_MAIN)
+            return QColor(t["TEXT_MAIN"])
+        return QColor(t["TEXT_MUTED"]) if not self.underMouse() else QColor(t["TEXT_MAIN"])
 
     def paintEvent(self, event) -> None:  # noqa: N802
         super().paintEvent(event)
@@ -544,6 +559,7 @@ class RecordButton(QPushButton):
         super().paintEvent(event)
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
+        t = _active_theme(self)
         metrics = QFontMetrics(self.font())
         text_w = metrics.horizontalAdvance(self.text())
         gx = self.width() / 2.0 - text_w / 2.0 - self.GLYPH_GAP - 7.0
@@ -551,9 +567,9 @@ class RecordButton(QPushButton):
         if self.property("recording"):
             path = QPainterPath()
             path.addRoundedRect(QRectF(gx, gy, 11, 11), 2, 2)
-            p.fillPath(path, QColor("#FFFFFF"))
+            p.fillPath(path, QColor(t["PRIMARY_TEXT"]))
         else:
-            paint_icon(p, "dot", QRectF(gx, gy, 11, 11), QColor(REC))
+            paint_icon(p, "dot", QRectF(gx, gy, 11, 11), QColor(t["REC"]))
 
     def set_recording(self, recording: bool) -> None:
         self.setProperty("recording", recording)
@@ -568,11 +584,13 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.cfg = cfg or AppConfig()
         self.cfg.language = normalize(self.cfg.language)
+        self.cfg.theme = theme_mod.normalize_theme(self.cfg.theme)
+        self.theme = theme_mod.get_theme(self.cfg.theme)
         self.rec = create_backend(self.cfg)
         self.setWindowTitle("CastMane")
         self.resize(820, 600)
         self.setMinimumSize(680, 500)
-        self.setStyleSheet(STYLESHEET)
+        self.setStyleSheet(build_stylesheet(self.theme))
         icon_path = logo_path()
         if icon_path:
             self.setWindowIcon(QIcon(icon_path))
@@ -632,14 +650,6 @@ class MainWindow(QMainWindow):
         text.addWidget(self.subtitle_lbl)
         row.addLayout(text, 1)
 
-        self.lang_seg = SegmentedControl(
-            [(LANGUAGE_LABELS[code], code) for code in SUPPORTED_LANGUAGES]
-        )
-        self.lang_seg.setFixedWidth(104)
-        self.lang_seg.set_current_data(self.cfg.language)
-        self.lang_seg.changed.connect(self._on_language_changed)
-        row.addWidget(self.lang_seg)
-
         self.timer_lbl = QLabel("00:00:00")
         self.timer_lbl.setObjectName("Timer")
         self.timer_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -671,6 +681,7 @@ class MainWindow(QMainWindow):
             ("capture", "monitor"),
             ("audio", "audio"),
             ("region", "region"),
+            ("settings", "gear"),
         ):
             btn = NavButton(icon, self)
             btn.setProperty("page", code)
@@ -701,6 +712,7 @@ class MainWindow(QMainWindow):
         self.pages.addWidget(self._build_capture_page())
         self.pages.addWidget(self._build_audio_page())
         self.pages.addWidget(self._build_region_page())
+        self.pages.addWidget(self._build_settings_page())
         layout.addWidget(self.pages)
         layout.addStretch(1)
         scroll.setWidget(holder)
@@ -887,6 +899,36 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._row(self.lbl_region, grid_wrap, self.hint_region))
         return page
 
+    def _build_settings_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self.lbl_language = QLabel()
+        self.lbl_language.setObjectName("RowLabel")
+        self.lang_seg = SegmentedControl(
+            [(LANGUAGE_LABELS[code], code) for code in SUPPORTED_LANGUAGES]
+        )
+        self.lang_seg.set_current_data(self.cfg.language)
+        self.lang_seg.changed.connect(self._on_language_changed)
+        self.hint_language = QLabel()
+        self.hint_language.setObjectName("Hint")
+        layout.addWidget(
+            self._row(self.lbl_language, self.lang_seg, self.hint_language)
+        )
+        layout.addWidget(self._hairline())
+
+        self.lbl_theme = QLabel()
+        self.lbl_theme.setObjectName("RowLabel")
+        self.theme_seg = SegmentedControl([("", "light"), ("", "dark")])
+        self.theme_seg.set_current_data(self.cfg.theme)
+        self.theme_seg.changed.connect(self._on_theme_changed)
+        self.hint_theme = QLabel()
+        self.hint_theme.setObjectName("Hint")
+        layout.addWidget(self._row(self.lbl_theme, self.theme_seg, self.hint_theme))
+        return page
+
     def _build_transport(self) -> QFrame:
         bar = QFrame()
         bar.setObjectName("Transport")
@@ -961,7 +1003,7 @@ class MainWindow(QMainWindow):
         self._refresh_state_dot()
 
         for btn, key in zip(
-            self.tab_buttons, ("tab_capture", "tab_audio", "tab_region")
+            self.tab_buttons, ("tab_capture", "tab_audio", "tab_region", "tab_settings")
         ):
             btn.setText(_get(key, lang))
             btn.update()
@@ -1004,6 +1046,17 @@ class MainWindow(QMainWindow):
         self.lbl_region.setText(_get("label_region", lang))
         self.hint_region.setText(_get("region_hint", lang))
 
+        self.lbl_language.setText(_get("label_language", lang))
+        self.hint_language.setText(_get("language_hint", lang))
+        self.lbl_theme.setText(_get("label_theme", lang))
+        self.theme_seg.set_labels(
+            [
+                _get("theme_light", lang),
+                _get("theme_dark", lang),
+            ]
+        )
+        self.hint_theme.setText(_get("theme_hint", lang))
+
         self.backend_lbl.setText(_get("backend_line", lang).format(name=self.rec.name))
         self.folder_btn.setToolTip(_get("open_folder", lang))
         self._refresh_outcome()
@@ -1021,7 +1074,7 @@ class MainWindow(QMainWindow):
             p,
             "folder",
             QRectF(inset, inset, size.width() - 2 * inset, size.height() - 2 * inset),
-            QColor(TEXT_SOFT),
+            QColor(self.theme["TEXT_SOFT"]),
         )
         p.end()
         self.folder_btn.setIcon(QIcon(pix))
@@ -1044,11 +1097,11 @@ class MainWindow(QMainWindow):
 
     def _refresh_state_dot(self) -> None:
         if self.rec.state.paused:
-            self.status_dot.set_color(PAUSED)
+            self.status_dot.set_color(self.theme["PAUSED"])
         elif self.rec.state.active:
-            self.status_dot.set_color(REC)
+            self.status_dot.set_color(self.theme["REC"])
         else:
-            self.status_dot.set_color(READY)
+            self.status_dot.set_color(self.theme["READY"])
 
     def _refresh_mode_hint(self) -> None:
         self.hint_mode.setText(self.t(f"mode_{self.mode_seg.current_data()}_hint"))
@@ -1075,12 +1128,32 @@ class MainWindow(QMainWindow):
         except AttributeError:
             pass
         self._retranslate()
+        self.cfg.save()
+
+    def apply_theme(self, name: str) -> None:
+        """Switch the whole window to ``name`` and remember the choice."""
+        self.cfg.theme = theme_mod.normalize_theme(name)
+        self.theme = theme_mod.get_theme(self.cfg.theme)
+        self.theme_seg.set_current_data(self.cfg.theme)
+        self.setStyleSheet(build_stylesheet(self.theme))
+        self._refresh_state_dot()
+        self._paint_folder_icon()
+        for btn in self.tab_buttons:
+            btn.update()
+        self.audio_sw.update()
+        self.record_btn.update()
+        self.cfg.save()
+
+    def _on_theme_changed(self, name: str) -> None:
+        if not name:
+            return
+        self.apply_theme(name)
 
     def _select_tab(self, code: str) -> None:
         self.pages.setCurrentWidget(self.pages.widget(self._page_index(code)))
 
     def _page_index(self, code: str) -> int:
-        return ("capture", "audio", "region").index(code)
+        return ("capture", "audio", "region", "settings").index(code)
 
     # --- Recording control ---
 
@@ -1094,6 +1167,7 @@ class MainWindow(QMainWindow):
         self.mode_seg.set_enabled(enabled)
         self.quality_seg.set_enabled(enabled)
         self.lang_seg.set_enabled(enabled)
+        self.theme_seg.set_enabled(enabled)
         self.audio_sw.setEnabled(enabled)
         self.audio_mode_seg.set_enabled(enabled)
         self.gain_slider.setEnabled(enabled)
@@ -1282,4 +1356,5 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:  # noqa: N802
         if self.rec.state.active:
             self.rec.stop()
+        self.cfg.save()
         super().closeEvent(event)

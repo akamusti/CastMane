@@ -22,7 +22,6 @@ cfg.apply_quality_preset("high")  # "draft" | "balanced" | "high"
 | High     | 60  | 16 Mbps |
 
 ## Capture source
-
 ```python
 from castmane.config import AppConfig
 cfg = AppConfig(capture_mode="window")  # "fullscreen" | "window" | "ask"
@@ -37,3 +36,14 @@ windows (or both). On X11, `ask` lets you drag the region with the mouse
 (`ffmpeg -select_region`), while `region_*` / `window_id` give scriptable
 control. Crash-safety is unchanged: region and window recordings still go
 through the `.part` + atomic-rename pipeline.
+
+## Language & theme
+
+The **Settings** tab switches the UI language (`EN` / `TR`) and the theme
+(`Light` / `Dark`). Both apply instantly and are stored in
+`~/.config/castmane/settings.json`, so they survive restarts:
+
+```python
+from castmane.config import AppConfig
+cfg = AppConfig(language="tr", theme="dark")
+```

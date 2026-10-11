@@ -1,12 +1,17 @@
 """User settings + default output path."""
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 from .audio import normalize_audio_mode
 from .i18n import DEFAULT_LANGUAGE, normalize
+from .theme import DEFAULT_THEME, normalize_theme
+
+#: Where UI preferences are remembered between runs.
+SETTINGS_PATH = Path.home() / ".config" / "castmane" / "settings.json"
 
 
 @dataclass
@@ -15,6 +20,9 @@ class AppConfig:
     # UI language: "en" (default) or "tr". Switchable at runtime,
     # e.g. AppConfig(language="tr").
     language: str = DEFAULT_LANGUAGE
+    # UI theme: "light" (warm paper) or "dark". Switchable at runtime
+    # from the Settings page, e.g. AppConfig(theme="dark").
+    theme: str = DEFAULT_THEME
     fps: int = 30
     # Crash-safe: ffmpeg/GStreamer writes fragmented MP4,
     # so the file stays playable even if the process dies.
@@ -47,6 +55,7 @@ class AppConfig:
 
     def __post_init__(self) -> None:
         self.language = normalize(self.language)
+        self.theme = normalize_theme(self.theme)
         self.audio_mode = normalize_audio_mode(self.audio_mode)
 
     def apply_quality_preset(self, name: str) -> None:
@@ -90,3 +99,75 @@ class AppConfig:
         """Same-folder .part file: a leftover part signals an interrupted
         recording; on clean stop it is atomically renamed to the final."""
         return final.with_suffix(final.suffix + ".part")
+
+    # --- Persistence (Settings page choices survive restarts) ---
+
+    def to_dict(self) -> dict:
+        return {
+            "output_dir": str(self.output_dir),
+            "language": self.language,
+            "theme": self.theme,
+            "quality_preset": self.quality_preset,
+            "capture_mode": self.capture_mode,
+            "region_x": self.region_x,
+            "region_y": self.region_y,
+            "region_w": self.region_w,
+            "region_h": self.region_h,
+            "audio_enabled": self.audio_enabled,
+            "audio_mode": self.audio_mode,
+            "audio_source": self.audio_source,
+            "audio_desktop_source": self.audio_desktop_source,
+            "audio_gain": self.audio_gain,
+        }
+
+    def save(self, path: Path | None = None) -> None:
+        """Write preferences to disk. Never raises: a settings write
+        must not break recording or shutdown."""
+        target = Path(path) if path is not None else SETTINGS_PATH
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(json.dumps(self.to_dict(), indent=2), encoding="utf-8")
+        except OSError:
+            pass
+
+    @classmethod
+    def from_dict(cls, data: dict) -> AppConfig:
+        """Build a config from stored values; unknown/missing keys fall
+        back to defaults so old or hand-edited files never crash."""
+        if not isinstance(data, dict):
+            return cls()
+        try:
+            cfg = cls(
+                output_dir=Path(data.get("output_dir", Path.home() / "Videos" / "CastMane")),
+                language=data.get("language", DEFAULT_LANGUAGE),
+                theme=data.get("theme", DEFAULT_THEME),
+                capture_mode=data.get("capture_mode", "fullscreen"),
+                region_x=int(data.get("region_x", 0)),
+                region_y=int(data.get("region_y", 0)),
+                region_w=int(data.get("region_w", 0)),
+                region_h=int(data.get("region_h", 0)),
+                audio_enabled=bool(data.get("audio_enabled", False)),
+                audio_mode=data.get("audio_mode", "mic"),
+                audio_source=data.get("audio_source", "auto"),
+                audio_desktop_source=data.get("audio_desktop_source", "auto"),
+                audio_gain=float(data.get("audio_gain", 1.0)),
+            )
+            # Re-apply the stored preset so fps/bitrate match the preset
+            # instead of the dataclass defaults.
+            try:
+                cfg.apply_quality_preset(data.get("quality_preset", "balanced"))
+            except ValueError:
+                pass
+            return cfg
+        except (TypeError, ValueError):
+            return cls()
+
+    @classmethod
+    def load(cls, path: Path | None = None) -> AppConfig:
+        """Read stored preferences; a missing or corrupt file means
+        defaults, never an error."""
+        target = Path(path) if path is not None else SETTINGS_PATH
+        try:
+            return cls.from_dict(json.loads(target.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            return cls()

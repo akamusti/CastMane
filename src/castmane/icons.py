@@ -8,11 +8,13 @@ hovered, checked or disabled.
 """
 from __future__ import annotations
 
+from math import cos, pi, sin
+
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QTransform
 
 # Icons stroked with a pen: monitors, gauges, frames, glyph outlines.
-_STROKED = ("monitor", "audio", "region", "power", "folder")
+_STROKED = ("monitor", "audio", "region", "power", "folder", "gear")
 # Icons filled solid: the small transport glyphs.
 _FILLED = ("dot", "stop", "pause")
 
@@ -67,6 +69,13 @@ def _geometry(name: str) -> QPainterPath:
         p.lineTo(0.33, 0.23)
         p.lineTo(0.63, 0.23)
         p.lineTo(0.63, 0.31)
+    elif name == "gear":
+        # Ring plus eight teeth: reads as a settings cog at 16px.
+        p.addEllipse(QRectF(0.30, 0.30, 0.40, 0.40))
+        for i in range(8):
+            angle = pi / 8 + i * pi / 4
+            p.moveTo(0.5 + 0.21 * cos(angle), 0.5 + 0.21 * sin(angle))
+            p.lineTo(0.5 + 0.30 * cos(angle), 0.5 + 0.30 * sin(angle))
     elif name == "dot":
         p.addEllipse(QRectF(0.22, 0.22, 0.56, 0.56))
     elif name == "stop":

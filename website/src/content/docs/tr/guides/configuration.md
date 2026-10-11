@@ -37,3 +37,14 @@ Wayland'da `window` / `ask` portal diyafonunu monitörden pencereye çevirir
 (`ffmpeg -select_region`), `region_*` / `window_id` ise betiklenebilir kontrol
 verir. Crash-güvenliği değişmez: pencere ve bölge kayıtları da `.part` +
 atomik rename hattından geçer.
+
+## Dil ve tema
+
+**Ayarlar** sekmesi arayüz dilini (`EN` / `TR`) ve temayı (`Açık` / `Koyu`)
+değiştirir. İkisi de anında uygulanır ve `~/.config/castmane/settings.json`
+dosyasında saklanır, yani yeniden başlatmalarda korunur:
+
+```python
+from castmane.config import AppConfig
+cfg = AppConfig(language="tr", theme="dark")
+```

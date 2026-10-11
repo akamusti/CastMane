@@ -18,7 +18,7 @@ def main() -> int:
     icon = logo_path()
     if icon:
         app.setWindowIcon(QIcon(icon))
-    win = MainWindow(AppConfig())
+    win = MainWindow(AppConfig.load())
     win.show()
     return app.exec()
 
