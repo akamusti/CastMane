@@ -77,6 +77,8 @@ from .theme import (
     RADIUS_CARD,
     RADIUS_CONTROL,
     RADIUS_SMALL,
+    SEGMENT_PAD,
+    SEGMENT_TEXT_PAD,
     TEXT_DISABLED,
     TEXT_FAINT,
     TEXT_MAIN,
@@ -216,10 +218,20 @@ QPushButton#Tab:checked {{
     color: #FFFFFF;
     font-weight: 700;
 }}
-/* Segmented switch (language, source, quality) */
+/* Segmented control (language, source, quality) */
+QFrame#Segment {{
+    background-color: {BG_SUNKEN};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_CONTROL}px;
+}}
+/* padding/border/font-weight stay identical across every state: a rule
+   that alters any of them changes sizeHint, so the selected segment ends
+   up a pixel wider than its neighbours and the columns stop lining up.
+   `background` is used (not background-color) so the transparent and the
+   gradient states compute the same content rect. */
 QPushButton#Seg {{
     background: transparent;
-    border: none;
+    border: 1px solid transparent;
     border-radius: {RADIUS_SMALL}px;
     padding: 7px 4px;
     color: {TEXT_MUTED};
@@ -231,9 +243,18 @@ QPushButton#Seg:hover {{
     background-color: {BG_HOVER};
 }}
 QPushButton#Seg:checked {{
-    background-color: {BG_SUNKEN};
-    color: {ACCENT_CYAN};
-    font-weight: 700;
+    background: {ACCENT_GRADIENT};
+    border: 1px solid transparent;
+    color: #FFFFFF;
+}}
+QPushButton#Seg:disabled {{
+    color: {TEXT_DISABLED};
+    background: transparent;
+    border: 1px solid transparent;
+}}
+QPushButton#Seg:checked:disabled {{
+    background-color: {BG_HOVER};
+    color: {TEXT_DISABLED};
 }}
 /* Primary record button */
 QPushButton#Record {{
@@ -509,8 +530,13 @@ class RecordButton(QPushButton):
         _repolish(self)
 
 
-class SegmentedControl(QWidget):
-    """Row of mutually exclusive buttons (source, quality, language)."""
+class SegmentedControl(QFrame):
+    """Row of mutually exclusive buttons (source, quality, language).
+
+    The group sits in a sunken "well" so the buttons read as one control
+    instead of floating labels. The checked button is filled with the
+    brand gradient, which keeps the selection obvious against the card.
+    """
 
     changed = Signal(str)
 
@@ -520,28 +546,88 @@ class SegmentedControl(QWidget):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._entries = list(entries)
+        self.setObjectName("Segment")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._spacing = 2
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(3, 3, 3, 3)
-        layout.setSpacing(2)
+        # Integer margins only: a fractional QSS padding on the buttons
+        # makes Qt round the three segments to 115/114/115.
+        layout.setContentsMargins(
+            SEGMENT_PAD, SEGMENT_PAD, SEGMENT_PAD, SEGMENT_PAD
+        )
+        layout.setSpacing(self._spacing)
         self._group = QButtonGroup(self)
         self._group.setExclusive(True)
         self._buttons: list[QPushButton] = []
-        for label, data in self._entries:
+        for label, data in entries:
             btn = QPushButton(label, self)
             btn.setObjectName("Seg")
             btn.setCheckable(True)
             btn.setCursor(Qt.PointingHandCursor)
             btn.setProperty("data", data)
+            # Expanding so the three segments share the control width; the
+            # explicit width in _relayout_buttons() keeps them flush.
             btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             btn.clicked.connect(lambda _=False, d=data: self.changed.emit(d))
             self._group.addButton(btn)
             layout.addWidget(btn, 1)
             self._buttons.append(btn)
+        # Pin the frame's minimum so a later relayout cannot ratchet the
+        # control wider: only the fixed button widths below decide its
+        # minimum, and they are recomputed from the allocated width.
+        self.setMinimumWidth(self._natural_width() * len(self._buttons))
+        self._relayout_buttons()
+
+    def _relayout_buttons(self) -> None:
+        """Give each segment an identical slice of the control width.
+
+        Fixed widths, computed from the frame's own width, are safe here:
+        the frame's sizeHint is driven by its *minimum*, which is pinned to
+        the natural label width and never grows. The frame stays Expanding
+        so it fills its column, and the buttons split what it allocates.
+
+        The selected segment reports a larger sizeHint than its siblings
+        (it carries a gradient background); giving every button an
+        explicit width stops Qt from handing that leftover pixel to it and
+        keeps the three columns flush at 115/115/115 instead of 115/114/115.
+        """
+        count = len(self._buttons)
+        if not count:
+            return
+        gaps = self._spacing * (count - 1)
+        available = self.width() - self._margins() - gaps
+        if available <= 0:
+            return
+        slice_w = max(1, available // count)
+        for btn in self._buttons:
+            btn.setFixedWidth(slice_w)
+
+    def _margins(self) -> int:
+        """Left + right inset this control keeps around its buttons."""
+        m = self.layout().contentsMargins()
+        return m.left() + m.right()
+
+    def _natural_width(self) -> int:
+        """Widest label plus the stylesheet's horizontal padding.
+
+        Measured with QFontMetrics rather than sizeHint(): sizeHint() of a
+        button that already carries a fixed width includes that width, so
+        reading it back here would compound on every relayout.
+        """
+        metrics = QFontMetrics(self._buttons[0].font())
+        return max(
+            metrics.horizontalAdvance(btn.text()) for btn in self._buttons
+        ) + SEGMENT_TEXT_PAD
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._relayout_buttons()
 
     def set_labels(self, labels: list[str]) -> None:
         for btn, label in zip(self._buttons, labels):
             btn.setText(label)
+        # Translations change label widths; re-align the columns.
+        self._relayout_buttons()
 
     def current_data(self) -> str:
         btn = self._group.checkedButton()
@@ -645,7 +731,7 @@ class MainWindow(QMainWindow):
         self.lang_seg = SegmentedControl(
             [(LANGUAGE_LABELS[code], code) for code in SUPPORTED_LANGUAGES]
         )
-        self.lang_seg.setFixedWidth(92)
+        self.lang_seg.setFixedWidth(96)
         self.lang_seg.set_current_data(self.cfg.language)
         self.lang_seg.changed.connect(self._on_language_changed)
         row.addWidget(self.lang_seg, 0)
@@ -758,18 +844,19 @@ class MainWindow(QMainWindow):
         value_widget: QWidget,
         hint: QLabel | None = None,
     ) -> QWidget:
-        """Row: label on the left, control on the right, hint underneath."""
+        """Stacked field: label on top, control full width, hint below.
+
+        A vertical stack rather than label-beside-control: the control
+        gets the whole card width, which is what keeps three equal
+        segments on one line inside a narrow window.
+        """
         box = QWidget()
         layout = QVBoxLayout(box)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
-        top = QHBoxLayout()
-        top.setContentsMargins(0, 0, 0, 0)
-        top.setSpacing(12)
-        name_lbl.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        top.addWidget(name_lbl, 0, Qt.AlignVCenter)
-        top.addWidget(value_widget, 1, Qt.AlignVCenter)
-        layout.addLayout(top)
+        layout.setSpacing(7)
+        name_lbl.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        layout.addWidget(name_lbl)
+        layout.addWidget(value_widget)
         if hint is not None:
             layout.addWidget(hint)
         return box

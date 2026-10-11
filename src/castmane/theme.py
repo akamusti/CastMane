@@ -51,6 +51,11 @@ BG_DISABLED = "#1A1F3A"
 RADIUS_CARD = 16
 RADIUS_CONTROL = 10
 RADIUS_SMALL = 8
+# Inner padding of a segmented-control "well" around its buttons.
+SEGMENT_PAD = 3
+# Horizontal breathing room inside one segment button (QSS padding is 4+4,
+# plus a small cushion so the label never touches the rounded corner).
+SEGMENT_TEXT_PAD = 22
 
 # --- Fonts ---
 FONT_UI = '"Noto Sans", "DejaVu Sans", "Liberation Sans", sans-serif'
