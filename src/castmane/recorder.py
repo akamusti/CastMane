@@ -68,6 +68,8 @@ class FfmpegX11Recorder:
             # Single window: X11 window id (e.g. from `xwininfo`).
             cmd += ["-window_id", str(self.cfg.window_id)]
         cmd += ["-f", "x11grab"]
+        # Mouse cursor overlay (ffmpeg x11grab flag).
+        cmd += ["-draw_mouse", "1" if self.cfg.show_cursor else "0"]
         if self.cfg.region_w > 0 and self.cfg.region_h > 0:
             # Fixed region: WxH + top-left corner.
             cmd += [

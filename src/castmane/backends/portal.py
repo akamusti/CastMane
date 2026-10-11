@@ -417,6 +417,10 @@ class PortalRecorder:
                     # 1=monitor (fullscreen), 2=window, 3=ask both.
                     "types": Variant("u", self.cfg.source_types()),
                     "multiple": Variant("b", False),
+                    # Portal cursor mode: 2=embedded (visible), 1=hidden.
+                    "cursor_mode": Variant(
+                        "u", 2 if getattr(self.cfg, "show_cursor", True) else 1
+                    ),
                     "handle_token": Variant("s", _new_token()),
                 },
             )

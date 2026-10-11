@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import re
+import shutil
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -12,6 +14,39 @@ from .theme import DEFAULT_THEME, normalize_theme
 
 #: Where UI preferences are remembered between runs.
 SETTINGS_PATH = Path.home() / ".config" / "castmane" / "settings.json"
+
+#: Countdown choices offered in the UI (seconds). 0 = off.
+COUNTDOWN_CHOICES = (0, 3, 5, 10)
+
+#: Auto-stop limit (minutes). 0 = off, max 3 hours.
+AUTO_STOP_MAX_MIN = 180
+
+#: Abort recording start below this free space so we never write a
+#: truncated file without telling the user first.
+MIN_FREE_MB = 100
+
+
+def sanitize_prefix(value: str) -> str:
+    """Clamp a filename prefix to `[A-Za-z0-9_-]`, max 32 chars."""
+    cleaned = re.sub(r"[^A-Za-z0-9_-]+", "_", (value or "").strip())
+    cleaned = cleaned.strip("_") or "castmane"
+    return cleaned[:32]
+
+
+def normalize_countdown(value: int) -> int:
+    try:
+        ivalue = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return ivalue if ivalue in COUNTDOWN_CHOICES else 0
+
+
+def normalize_auto_stop(value: int) -> int:
+    try:
+        ivalue = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, min(AUTO_STOP_MAX_MIN, ivalue))
 
 
 @dataclass
@@ -52,11 +87,22 @@ class AppConfig:
     # Quality preset: "draft" (light/fast), "balanced" (default),
     # "high" (heavy). fps affects X11 capture, bitrate affects both backends.
     quality_preset: str = "balanced"
+    # Output naming: sanitized via sanitize_prefix() ("my video!" -> "my_video").
+    filename_prefix: str = "castmane"
+    # Mouse cursor in the footage (X11 draw_mouse + portal cursor_mode).
+    show_cursor: bool = True
+    # Countdown before recording starts (seconds, 0 = off).
+    countdown_s: int = 0
+    # Auto-stop after N minutes (0 = off, max 180).
+    auto_stop_min: int = 0
 
     def __post_init__(self) -> None:
         self.language = normalize(self.language)
         self.theme = normalize_theme(self.theme)
         self.audio_mode = normalize_audio_mode(self.audio_mode)
+        self.filename_prefix = sanitize_prefix(self.filename_prefix)
+        self.countdown_s = normalize_countdown(self.countdown_s)
+        self.auto_stop_min = normalize_auto_stop(self.auto_stop_min)
 
     def apply_quality_preset(self, name: str) -> None:
         presets = {
@@ -93,7 +139,16 @@ class AppConfig:
     def next_output_path(self, suffix: str = ".mp4") -> Path:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        return self.output_dir / f"castmane_{stamp}{suffix}"
+        return self.output_dir / f"{sanitize_prefix(self.filename_prefix)}_{stamp}{suffix}"
+
+    def output_dir_free_mb(self) -> float | None:
+        """Free space in the output folder (MiB), None when unknown."""
+        try:
+            target = self.output_dir
+            target.mkdir(parents=True, exist_ok=True)
+            return shutil.disk_usage(target).free / (1024 * 1024)
+        except OSError:
+            return None
 
     def tmp_path_for(self, final: Path) -> Path:
         """Same-folder .part file: a leftover part signals an interrupted
@@ -105,6 +160,10 @@ class AppConfig:
     def to_dict(self) -> dict:
         return {
             "output_dir": str(self.output_dir),
+            "filename_prefix": self.filename_prefix,
+            "show_cursor": self.show_cursor,
+            "countdown_s": self.countdown_s,
+            "auto_stop_min": self.auto_stop_min,
             "language": self.language,
             "theme": self.theme,
             "quality_preset": self.quality_preset,
@@ -139,6 +198,10 @@ class AppConfig:
         try:
             cfg = cls(
                 output_dir=Path(data.get("output_dir", Path.home() / "Videos" / "CastMane")),
+                filename_prefix=sanitize_prefix(data.get("filename_prefix", "castmane")),
+                show_cursor=bool(data.get("show_cursor", True)),
+                countdown_s=normalize_countdown(data.get("countdown_s", 0)),
+                auto_stop_min=normalize_auto_stop(data.get("auto_stop_min", 0)),
                 language=data.get("language", DEFAULT_LANGUAGE),
                 theme=data.get("theme", DEFAULT_THEME),
                 capture_mode=data.get("capture_mode", "fullscreen"),

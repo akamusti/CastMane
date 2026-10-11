@@ -15,6 +15,7 @@ is getting away from.
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 from PySide6.QtCore import (
     QEasingCurve,
@@ -35,10 +36,13 @@ from PySide6.QtGui import (
     QPainterPath,
     QPen,
     QPixmap,
+    QShortcut,
+    QKeySequence,
 )
 from PySide6.QtWidgets import (
     QAbstractButton,
     QButtonGroup,
+    QFileDialog,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -57,7 +61,13 @@ from PySide6.QtWidgets import (
 
 from .backends import create_backend, session_is_wayland
 from . import theme as theme_mod
-from .config import AppConfig
+from .config import (
+    AppConfig,
+    AUTO_STOP_MAX_MIN,
+    COUNTDOWN_CHOICES,
+    MIN_FREE_MB,
+    sanitize_prefix,
+)
 from .i18n import SUPPORTED_LANGUAGES, get as _get, normalize
 from .icons import paint_icon
 from .theme import (
@@ -617,6 +627,17 @@ class MainWindow(QMainWindow):
         self.timer.setInterval(500)
         self.timer.timeout.connect(self.tick)
 
+        # Countdown (3-2-1) + auto-stop state. Countdown ticks once per
+        # second on this timer; auto-stop is a one-shot wall-clock timer.
+        self._countdown_left = 0
+        self._countdown_timer = QTimer(self)
+        self._countdown_timer.setInterval(1000)
+        self._countdown_timer.timeout.connect(self._countdown_tick)
+        self._autostop_timer = QTimer(self)
+        self._autostop_timer.setSingleShot(True)
+        self._autostop_timer.timeout.connect(self._auto_stop_timeout)
+        self._setup_shortcuts()
+
         self._is_wayland = session_is_wayland()
         self._retranslate()
         self._refresh_idle_status()
@@ -681,6 +702,7 @@ class MainWindow(QMainWindow):
             ("capture", "monitor"),
             ("audio", "audio"),
             ("region", "region"),
+            ("output", "folder"),
             ("settings", "gear"),
         ):
             btn = NavButton(icon, self)
@@ -712,6 +734,7 @@ class MainWindow(QMainWindow):
         self.pages.addWidget(self._build_capture_page())
         self.pages.addWidget(self._build_audio_page())
         self.pages.addWidget(self._build_region_page())
+        self.pages.addWidget(self._build_output_page())
         self.pages.addWidget(self._build_settings_page())
         layout.addWidget(self.pages)
         layout.addStretch(1)
@@ -784,6 +807,57 @@ class MainWindow(QMainWindow):
         self.hint_quality.setObjectName("Hint")
         layout.addWidget(
             self._row(self.lbl_quality, self.quality_seg, self.hint_quality)
+        )
+        layout.addWidget(self._hairline())
+
+        self.lbl_cursor = QLabel()
+        self.lbl_cursor.setObjectName("RowLabel")
+        cursor_wrap = QWidget()
+        cursor_row = QHBoxLayout(cursor_wrap)
+        cursor_row.setContentsMargins(0, 0, 0, 0)
+        self.cursor_sw = Switch()
+        self.cursor_sw.setChecked(self.cfg.show_cursor)
+        self.cursor_sw.toggled.connect(self._on_cursor_toggled)
+        cursor_row.addWidget(self.cursor_sw)
+        cursor_row.addStretch(1)
+        self.hint_cursor = QLabel()
+        self.hint_cursor.setObjectName("Hint")
+        layout.addWidget(self._row(self.lbl_cursor, cursor_wrap, self.hint_cursor))
+        layout.addWidget(self._hairline())
+
+        self.lbl_countdown = QLabel()
+        self.lbl_countdown.setObjectName("RowLabel")
+        self.countdown_seg = SegmentedControl(
+            [(self.t("countdown_off") if v == 0 else f"{v}s", str(v)) for v in COUNTDOWN_CHOICES]
+        )
+        self.countdown_seg.set_current_data(str(self.cfg.countdown_s))
+        self.countdown_seg.changed.connect(self._on_countdown_changed)
+        self.hint_countdown = QLabel()
+        self.hint_countdown.setObjectName("Hint")
+        layout.addWidget(
+            self._row(self.lbl_countdown, self.countdown_seg, self.hint_countdown)
+        )
+        layout.addWidget(self._hairline())
+
+        self.lbl_autostop = QLabel()
+        self.lbl_autostop.setObjectName("RowLabel")
+        autostop_wrap = QWidget()
+        autostop_row = QHBoxLayout(autostop_wrap)
+        autostop_row.setContentsMargins(0, 0, 0, 0)
+        autostop_row.setSpacing(10)
+        self.autostop_spin = QSpinBox()
+        self.autostop_spin.setRange(0, AUTO_STOP_MAX_MIN)
+        self.autostop_spin.setValue(self.cfg.auto_stop_min)
+        self.autostop_spin.valueChanged.connect(self._on_autostop_changed)
+        autostop_row.addWidget(self.autostop_spin)
+        self.autostop_unit = QLabel()
+        self.autostop_unit.setObjectName("Hint")
+        autostop_row.addWidget(self.autostop_unit)
+        autostop_row.addStretch(1)
+        self.hint_autostop = QLabel()
+        self.hint_autostop.setObjectName("Hint")
+        layout.addWidget(
+            self._row(self.lbl_autostop, autostop_wrap, self.hint_autostop)
         )
         return page
 
@@ -899,6 +973,50 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._row(self.lbl_region, grid_wrap, self.hint_region))
         return page
 
+    def _build_output_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self.lbl_output_folder = QLabel()
+        self.lbl_output_folder.setObjectName("RowLabel")
+        folder_wrap = QWidget()
+        folder_row = QHBoxLayout(folder_wrap)
+        folder_row.setContentsMargins(0, 0, 0, 0)
+        folder_row.setSpacing(8)
+        self.output_edit = QLineEdit(str(self.cfg.output_dir))
+        self.output_edit.textChanged.connect(self._on_output_dir_changed)
+        folder_row.addWidget(self.output_edit, 1)
+        self.browse_btn = QPushButton()
+        self.browse_btn.clicked.connect(self.browse_output_folder)
+        folder_row.addWidget(self.browse_btn)
+        self.hint_output = QLabel()
+        self.hint_output.setObjectName("Hint")
+        layout.addWidget(
+            self._row(self.lbl_output_folder, folder_wrap, self.hint_output)
+        )
+        layout.addWidget(self._hairline())
+
+        self.lbl_disk = QLabel()
+        self.lbl_disk.setObjectName("RowLabel")
+        self.disk_value = QLabel()
+        self.disk_value.setObjectName("Hint")
+        layout.addWidget(self._row(self.lbl_disk, self.disk_value))
+        layout.addWidget(self._hairline())
+
+        self.lbl_prefix = QLabel()
+        self.lbl_prefix.setObjectName("RowLabel")
+        self.prefix_edit = QLineEdit(self.cfg.filename_prefix)
+        self.prefix_edit.setMaxLength(32)
+        self.prefix_edit.textChanged.connect(self._on_prefix_changed)
+        self.hint_prefix = QLabel()
+        self.hint_prefix.setObjectName("Hint")
+        layout.addWidget(
+            self._row(self.lbl_prefix, self.prefix_edit, self.hint_prefix)
+        )
+        return page
+
     def _build_settings_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -1003,7 +1121,8 @@ class MainWindow(QMainWindow):
         self._refresh_state_dot()
 
         for btn, key in zip(
-            self.tab_buttons, ("tab_capture", "tab_audio", "tab_region", "tab_settings")
+            self.tab_buttons,
+            ("tab_capture", "tab_audio", "tab_region", "tab_output", "tab_settings"),
         ):
             btn.setText(_get(key, lang))
             btn.update()
@@ -1045,6 +1164,25 @@ class MainWindow(QMainWindow):
 
         self.lbl_region.setText(_get("label_region", lang))
         self.hint_region.setText(_get("region_hint", lang))
+
+        self.lbl_cursor.setText(_get("label_cursor", lang))
+        self.hint_cursor.setText(_get("cursor_hint", lang))
+        self.lbl_countdown.setText(_get("label_countdown", lang))
+        self.countdown_seg.set_labels(
+            [_get("countdown_off", lang) if v == 0 else f"{v}s" for v in COUNTDOWN_CHOICES]
+        )
+        self.hint_countdown.setText(_get("countdown_hint", lang))
+        self.lbl_autostop.setText(_get("label_autostop", lang))
+        self.autostop_unit.setText(_get("autostop_minutes", lang))
+        self.hint_autostop.setText(_get("autostop_hint", lang))
+
+        self.lbl_output_folder.setText(_get("label_output_folder", lang))
+        self.browse_btn.setText(_get("output_browse", lang))
+        self.hint_output.setText(_get("output_hint", lang))
+        self.lbl_disk.setText(_get("label_output_folder", lang))
+        self.lbl_prefix.setText(_get("label_prefix", lang))
+        self.hint_prefix.setText(_get("prefix_hint", lang))
+        self._refresh_disk_label()
 
         self.lbl_language.setText(_get("label_language", lang))
         self.hint_language.setText(_get("language_hint", lang))
@@ -1153,7 +1291,19 @@ class MainWindow(QMainWindow):
         self.pages.setCurrentWidget(self.pages.widget(self._page_index(code)))
 
     def _page_index(self, code: str) -> int:
-        return ("capture", "audio", "region", "settings").index(code)
+        return ("capture", "audio", "region", "output", "settings").index(code)
+
+    def _setup_shortcuts(self) -> None:
+        """Keyboard: R/Space = record-stop, P = pause, F = open folder."""
+        for seq, slot in (
+            ("R", self.toggle),
+            ("Space", self.toggle),
+            ("P", self.toggle_pause),
+            ("F", self.open_output_folder),
+        ):
+            sc = QShortcut(QKeySequence(seq), self)
+            sc.setContext(Qt.WindowShortcut)
+            sc.activated.connect(slot)
 
     # --- Recording control ---
 
@@ -1166,6 +1316,9 @@ class MainWindow(QMainWindow):
     def _set_inputs_enabled(self, enabled: bool) -> None:
         self.mode_seg.set_enabled(enabled)
         self.quality_seg.set_enabled(enabled)
+        self.cursor_sw.setEnabled(enabled)
+        self.countdown_seg.set_enabled(enabled)
+        self.autostop_spin.setEnabled(enabled)
         self.lang_seg.set_enabled(enabled)
         self.theme_seg.set_enabled(enabled)
         self.audio_sw.setEnabled(enabled)
@@ -1173,44 +1326,94 @@ class MainWindow(QMainWindow):
         self.gain_slider.setEnabled(enabled)
         self.audio_source_edit.setEnabled(enabled)
         self.audio_desktop_edit.setEnabled(enabled)
+        self.output_edit.setEnabled(enabled)
+        self.browse_btn.setEnabled(enabled)
+        self.prefix_edit.setEnabled(enabled)
         self._set_region_enabled(enabled)
 
     def toggle(self) -> None:
-        if not self.rec.state.active:
-            try:
-                final = self.rec.start()
-            except FileNotFoundError:
-                self._fail(self.t("deps_missing"))
-                return
-            except Exception as e:  # noqa: BLE001
-                self._fail(self.t("start_failed").format(err=e))
-                return
-            self._clear_error()
-            tmp = self.rec.state.tmp_path
-            self.status_lbl.setText(
-                self.t("recording_to").format(name=tmp.name if tmp else final.name)
-            )
-            self.record_btn.setText(self.t("rec_stop"))
-            self.pause_btn.setEnabled(True)
-            self.pause_btn.setText(self.t("pause"))
-            self._set_inputs_enabled(False)
-            self._set_recording_ui(True)
-            self.timer.start()
-        else:
-            out = self.rec.stop()
-            self.timer.stop()
+        # A second press while counting down cancels the countdown.
+        if self._countdown_timer.isActive():
+            self._countdown_timer.stop()
+            self._countdown_left = 0
+            self.timer_lbl.setText("00:00:00")
+            self._refresh_idle_status()
             self._set_inputs_enabled(True)
-            self.pause_btn.setEnabled(False)
-            self.pause_btn.setText(self.t("pause"))
-            if out:
-                self._clear_error()
-                self.status_lbl.setText(self.t("saved").format(out=out))
-            else:
-                self._fail(
-                    self.t("error_prefix").format(err=self.rec.state.last_error)
+            return
+        if not self.rec.state.active:
+            if self.cfg.countdown_s > 0:
+                self._countdown_left = self.cfg.countdown_s
+                self._set_inputs_enabled(False)
+                self.status_lbl.setText(
+                    self.t("countdown_status").format(n=self._countdown_left)
                 )
-            self.record_btn.setText(self.t("rec_start"))
-            self._set_recording_ui(False)
+                self.timer_lbl.setText(f"00:00:0{self._countdown_left}"[-8:])
+                self._countdown_timer.start()
+                return
+            self._start_recording()
+        else:
+            self._stop_recording()
+
+    def _countdown_tick(self) -> None:
+        self._countdown_left -= 1
+        if self._countdown_left <= 0:
+            self._countdown_timer.stop()
+            self._start_recording()
+            return
+        self.status_lbl.setText(
+            self.t("countdown_status").format(n=self._countdown_left)
+        )
+        self.timer_lbl.setText(f"00:00:0{self._countdown_left}"[-8:])
+
+    def _start_recording(self) -> None:
+        free_mb = self.cfg.output_dir_free_mb()
+        if free_mb is not None and free_mb < MIN_FREE_MB:
+            self._set_inputs_enabled(True)
+            self.timer_lbl.setText("00:00:00")
+            self._fail(self.t("disk_low").format(mb=free_mb))
+            return
+        try:
+            final = self.rec.start()
+        except FileNotFoundError:
+            self._set_inputs_enabled(True)
+            self._fail(self.t("deps_missing"))
+            return
+        except Exception as e:  # noqa: BLE001
+            self._set_inputs_enabled(True)
+            self._fail(self.t("start_failed").format(err=e))
+            return
+        self._clear_error()
+        tmp = self.rec.state.tmp_path
+        self.status_lbl.setText(
+            self.t("recording_to").format(name=tmp.name if tmp else final.name)
+        )
+        self.record_btn.setText(self.t("rec_stop"))
+        self.pause_btn.setEnabled(True)
+        self.pause_btn.setText(self.t("pause"))
+        self._set_inputs_enabled(False)
+        self._set_recording_ui(True)
+        self.timer.start()
+        if self.cfg.auto_stop_min > 0:
+            self._autostop_timer.start(self.cfg.auto_stop_min * 60 * 1000)
+
+    def _stop_recording(self) -> None:
+        self._countdown_timer.stop()
+        self._autostop_timer.stop()
+        self._countdown_left = 0
+        out = self.rec.stop()
+        self.timer.stop()
+        self._set_inputs_enabled(True)
+        self.pause_btn.setEnabled(False)
+        self.pause_btn.setText(self.t("pause"))
+        if out:
+            self._clear_error()
+            self.status_lbl.setText(self.t("saved").format(out=out))
+        else:
+            self._fail(
+                self.t("error_prefix").format(err=self.rec.state.last_error)
+            )
+        self.record_btn.setText(self.t("rec_start"))
+        self._set_recording_ui(False)
 
     def toggle_pause(self) -> None:
         if not self.rec.state.active:
@@ -1318,6 +1521,74 @@ class MainWindow(QMainWindow):
             except AttributeError:
                 pass
 
+    def _on_cursor_toggled(self, checked: bool) -> None:
+        self.cfg.show_cursor = checked
+        try:
+            self.rec.cfg.show_cursor = checked
+        except AttributeError:
+            pass
+        self.cfg.save()
+
+    def _on_countdown_changed(self, value: str) -> None:
+        from .config import normalize_countdown
+
+        self.cfg.countdown_s = normalize_countdown(value)
+        try:
+            self.rec.cfg.countdown_s = self.cfg.countdown_s
+        except AttributeError:
+            pass
+        self.cfg.save()
+
+    def _on_autostop_changed(self, value: int) -> None:
+        from .config import normalize_auto_stop
+
+        self.cfg.auto_stop_min = normalize_auto_stop(value)
+        try:
+            self.rec.cfg.auto_stop_min = self.cfg.auto_stop_min
+        except AttributeError:
+            pass
+        self.cfg.save()
+
+    def _on_output_dir_changed(self, text: str) -> None:
+        value = text.strip() or str(Path.home() / "Videos" / "CastMane")
+        self.cfg.output_dir = Path(value)
+        try:
+            self.rec.cfg.output_dir = self.cfg.output_dir
+        except AttributeError:
+            pass
+        self._refresh_outcome()
+        self._refresh_disk_label()
+        self.cfg.save()
+
+    def _on_prefix_changed(self, text: str) -> None:
+        self.cfg.filename_prefix = sanitize_prefix(text)
+        try:
+            self.rec.cfg.filename_prefix = self.cfg.filename_prefix
+        except AttributeError:
+            pass
+        self.cfg.save()
+
+    def browse_output_folder(self) -> None:
+        picked = QFileDialog.getExistingDirectory(
+            self, self.t("label_output_folder"), str(self.cfg.output_dir)
+        )
+        if picked:
+            self.output_edit.setText(picked)
+
+    def _refresh_disk_label(self) -> None:
+        mb = self.cfg.output_dir_free_mb()
+        if mb is None:
+            self.disk_value.setText(self.t("disk_unknown"))
+            return
+        if mb < MIN_FREE_MB:
+            self.disk_value.setText(self.t("disk_low").format(mb=mb))
+        else:
+            self.disk_value.setText(self.t("disk_free").format(mb=mb))
+
+    def _auto_stop_timeout(self) -> None:
+        if self.rec.state.active and not self.rec.state.paused:
+            self._stop_recording()
+
     def _set_region_enabled(self, enabled: bool) -> None:
         for spin in self.region_spins.values():
             spin.setEnabled(enabled)
@@ -1354,6 +1625,8 @@ class MainWindow(QMainWindow):
             self.timer.stop()
 
     def closeEvent(self, event) -> None:  # noqa: N802
+        self._countdown_timer.stop()
+        self._autostop_timer.stop()
         if self.rec.state.active:
             self.rec.stop()
         self.cfg.save()
