@@ -1,15 +1,20 @@
-"""Qt main window.
+"""Qt main window: a plain desktop utility, not a landing page.
 
-Layout (top to bottom):
-  1. Header      - logo, wordmark, EN/TR segmented switch
-  2. Hero card   - status pill, monospace timer, thin activity bar
-  3. Record      - full-width primary button
-  4. Actions     - pause (expands) + quit (compact)
-  5. Tab bar     - Capture / Audio / Region
-  6. Page card   - stacked settings pages
-  7. Footer      - output folder hint
+Layout, top to bottom:
+  1. Header bar  - mark, name + subtitle, EN/TR switch, timer.
+  2. Body        - left nav rail (Capture / Audio / Region + backend note),
+                   right settings pane (stacked pages, label/control rows).
+  3. Transport   - Record (primary) + Pause.
+  4. Status bar  - state dot + message on the left, output folder on the right.
+
+Deliberately un-fancy: flat surfaces, 1px hairlines, system font, and a
+single red that only ever means "recording". No gradients, no glow, no
+pill badges with wide letter-spacing — that is the look this rewrite
+is getting away from.
 """
 from __future__ import annotations
+
+import subprocess
 
 from PySide6.QtCore import (
     QEasingCurve,
@@ -26,7 +31,6 @@ from PySide6.QtGui import (
     QFont,
     QFontMetrics,
     QIcon,
-    QLinearGradient,
     QPainter,
     QPainterPath,
     QPen,
@@ -54,320 +58,289 @@ from PySide6.QtWidgets import (
 from .backends import create_backend, session_is_wayland
 from .config import AppConfig
 from .i18n import SUPPORTED_LANGUAGES, get as _get, normalize
+from .icons import paint_icon
 from .theme import (
-    ACCENT_CYAN,
-    ACCENT_GRADIENT,
-    ACCENT_INDIGO,
-    ACCENT_PURPLE,
-    BG_BASE,
-    BG_CARD,
-    BG_DISABLED,
-    BG_HOVER,
-    BG_INPUT,
-    BG_PRESSED,
-    BG_SUNKEN,
-    BORDER,
-    BORDER_HOVER,
+    BTN_BG,
+    BTN_BORDER,
+    BTN_DISABLED_BG,
+    BTN_DISABLED_TEXT,
+    BTN_HOVER,
+    BTN_PRESSED,
+    CANVAS,
     FONT_MONO,
     FONT_UI,
-    RECORD_BG,
-    RECORD_BG_HOVER,
-    RECORD_BORDER,
-    RECORD_RED,
-    RADIUS_CARD,
-    RADIUS_CONTROL,
-    RADIUS_SMALL,
+    FOOTER_H,
+    HAIRLINE,
+    HAIRLINE_STRONG,
+    HEADER_H,
+    INK,
+    INK_HOVER,
+    INK_PRESSED,
+    NAV_H,
+    PAUSED,
+    RADIUS,
+    RADIUS_LG,
+    RADIUS_SM,
+    READY,
+    REC,
+    REC_BORDER,
+    REC_HOVER,
+    REC_PRESSED,
+    REC_TINT,
     SEGMENT_PAD,
     SEGMENT_TEXT_PAD,
-    TEXT_DISABLED,
+    SIDEBAR_W,
+    SURFACE,
+    SURFACE_SUNKEN,
     TEXT_FAINT,
     TEXT_MAIN,
     TEXT_MUTED,
+    TEXT_SOFT,
     logo_path,
+    mark_path,
 )
 
 STYLESHEET = f"""
-QMainWindow, QWidget {{
-    background-color: {BG_BASE};
+QMainWindow, QWidget#Root {{
+    background-color: {CANVAS};
     color: {TEXT_MAIN};
     font-family: {FONT_UI};
     font-size: 13px;
 }}
-QScrollArea, QScrollArea > QWidget > QWidget {{
-    background-color: {BG_BASE};
+QScrollArea {{
+    background-color: {SURFACE};
     border: none;
 }}
-/* --- Cards --- */
-QFrame#Card {{
-    background-color: {BG_CARD};
-    border: 1px solid {BORDER};
-    border-radius: {RADIUS_CARD}px;
+QScrollArea > QWidget > QWidget {{
+    background-color: {SURFACE};
 }}
-QFrame#TabBar {{
-    background-color: {BG_DISABLED};
-    border: 1px solid {BORDER};
-    border-radius: {RADIUS_CONTROL}px;
-}}
-QFrame#Divider {{
-    background-color: {BORDER};
-    border: none;
-    max-height: 1px;
-}}
-/* --- Text --- */
 QLabel {{
     background: transparent;
 }}
-QLabel#Wordmark {{
-    color: {TEXT_MAIN};
-    font-size: 17px;
-    font-weight: 800;
-    letter-spacing: 0.3px;
+/* --- Header --- */
+QFrame#Header {{
+    background-color: {SURFACE};
+    border: none;
+    border-bottom: 1px solid {HAIRLINE};
 }}
-QLabel#WordmarkSub {{
+QLabel#AppName {{
+    color: {TEXT_MAIN};
+    font-size: 14px;
+    font-weight: 700;
+}}
+QLabel#AppSub {{
     color: {TEXT_FAINT};
     font-size: 11px;
 }}
 QLabel#Timer {{
-    color: {TEXT_MAIN};
+    color: {TEXT_SOFT};
 }}
 QLabel#Timer[recording="true"] {{
-    color: {RECORD_RED};
+    color: {REC};
 }}
-QLabel#Pill {{
+/* --- Sidebar --- */
+QFrame#Sidebar {{
+    background-color: {CANVAS};
+    border: none;
+    border-right: 1px solid {HAIRLINE};
+}}
+QPushButton#Nav {{
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: {RADIUS_SM}px;
+    padding: 0 8px 0 34px;
     color: {TEXT_MUTED};
-    background-color: {BG_INPUT};
-    border: 1px solid {BORDER};
-    border-radius: 9px;
-    padding: 2px 10px;
-    font-size: 10px;
-    font-weight: 800;
-    letter-spacing: 1.2px;
+    font-size: 13px;
+    text-align: left;
 }}
-QLabel#Pill[state="recording"] {{
-    color: {RECORD_RED};
-    background-color: #2A1A22;
-    border-color: {RECORD_BORDER};
-}}
-QLabel#Pill[state="paused"] {{
-    color: {ACCENT_PURPLE};
-    background-color: #241B34;
-    border-color: #4A2F73;
-}}
-QLabel#StatusLine {{
-    color: {TEXT_MUTED};
-    font-size: 12px;
-}}
-QLabel#FieldName {{
-    color: {TEXT_MUTED};
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.8px;
-}}
-QLabel#FieldValue {{
+QPushButton#Nav:hover {{
+    background-color: {BTN_HOVER};
     color: {TEXT_MAIN};
+}}
+QPushButton#Nav:checked {{
+    background-color: {SURFACE};
+    border-color: {HAIRLINE_STRONG};
+    color: {TEXT_MAIN};
+    font-weight: 700;
+}}
+QLabel#SideNote {{
+    color: {TEXT_FAINT};
+    font-size: 11px;
+}}
+/* --- Settings pane --- */
+QLabel#RowLabel {{
+    color: {TEXT_SOFT};
     font-size: 12px;
+    font-weight: 600;
 }}
 QLabel#Hint {{
     color: {TEXT_FAINT};
     font-size: 11px;
 }}
-QLabel#Footer {{
-    color: {TEXT_FAINT};
-    font-size: 11px;
-}}
-QLabel#ErrorLine {{
-    color: {RECORD_RED};
-    font-size: 11px;
-}}
-/* --- Buttons --- */
-QPushButton {{
-    background-color: {BG_INPUT};
-    border: 1px solid {BORDER};
-    border-radius: {RADIUS_CONTROL}px;
-    padding: 8px 14px;
-    color: {TEXT_MAIN};
-}}
-QPushButton:hover {{
-    background-color: {BG_HOVER};
-    border-color: {BORDER_HOVER};
-}}
-QPushButton:pressed {{
-    background-color: {BG_PRESSED};
-}}
-QPushButton:disabled {{
-    background-color: {BG_DISABLED};
-    color: {TEXT_DISABLED};
-    border-color: {BORDER};
-}}
-/* Tab bar buttons */
-QPushButton#Tab {{
-    background: transparent;
+QFrame#Hairline {{
+    background-color: {HAIRLINE};
     border: none;
-    border-radius: {RADIUS_SMALL}px;
-    padding: 7px 6px;
-    color: {TEXT_FAINT};
-    font-size: 12px;
-    font-weight: 600;
+    max-height: 1px;
+    min-height: 1px;
 }}
-QPushButton#Tab:hover {{
-    color: {TEXT_MAIN};
-    background-color: {BG_HOVER};
-}}
-QPushButton#Tab:checked {{
-    background-color: {ACCENT_GRADIENT};
-    color: #FFFFFF;
-    font-weight: 700;
-}}
-/* Segmented control (language, source, quality) */
+/* --- Segmented control: sunken well, selected segment is plain white --- */
 QFrame#Segment {{
-    background-color: {BG_SUNKEN};
-    border: 1px solid {BORDER};
-    border-radius: {RADIUS_CONTROL}px;
+    background-color: {SURFACE_SUNKEN};
+    border: 1px solid {HAIRLINE};
+    border-radius: {RADIUS}px;
 }}
-/* padding/border/font-weight stay identical across every state: a rule
-   that alters any of them changes sizeHint, so the selected segment ends
-   up a pixel wider than its neighbours and the columns stop lining up.
-   `background` is used (not background-color) so the transparent and the
-   gradient states compute the same content rect. */
 QPushButton#Seg {{
     background: transparent;
     border: 1px solid transparent;
-    border-radius: {RADIUS_SMALL}px;
-    padding: 7px 4px;
+    border-radius: {RADIUS_SM}px;
+    padding: 6px 4px;
     color: {TEXT_MUTED};
     font-size: 12px;
-    font-weight: 600;
 }}
 QPushButton#Seg:hover {{
     color: {TEXT_MAIN};
-    background-color: {BG_HOVER};
 }}
 QPushButton#Seg:checked {{
-    background: {ACCENT_GRADIENT};
-    border: 1px solid transparent;
-    color: #FFFFFF;
+    background-color: {SURFACE};
+    border-color: {HAIRLINE_STRONG};
+    color: {TEXT_MAIN};
+    font-weight: 700;
 }}
 QPushButton#Seg:disabled {{
-    color: {TEXT_DISABLED};
-    background: transparent;
-    border: 1px solid transparent;
+    color: {TEXT_FAINT};
 }}
-QPushButton#Seg:checked:disabled {{
-    background-color: {BG_HOVER};
-    color: {TEXT_DISABLED};
-}}
-/* Primary record button */
+/* --- Buttons --- */
 QPushButton#Record {{
-    background-color: {ACCENT_GRADIENT};
-    border: none;
-    border-radius: {RADIUS_CARD}px;
-    padding: 15px 20px;
+    background-color: {INK};
+    border: 1px solid {INK};
+    border-radius: {RADIUS}px;
+    padding: 10px 16px;
     color: #FFFFFF;
-    font-size: 15px;
-    font-weight: 800;
-    letter-spacing: 0.4px;
+    font-size: 14px;
+    font-weight: 700;
 }}
 QPushButton#Record:hover {{
-    background-color: {ACCENT_INDIGO};
+    background-color: {INK_HOVER};
+    border-color: {INK_HOVER};
 }}
 QPushButton#Record:pressed {{
-    background-color: #4A43D6;
+    background-color: {INK_PRESSED};
+    border-color: {INK_PRESSED};
 }}
 QPushButton#Record[recording="true"] {{
-    background-color: {RECORD_BG};
-    border: 1px solid {RECORD_BORDER};
+    background-color: {REC};
+    border-color: {REC};
 }}
 QPushButton#Record[recording="true"]:hover {{
-    background-color: {RECORD_BG_HOVER};
+    background-color: {REC_HOVER};
+    border-color: {REC_HOVER};
 }}
-QPushButton#Quit {{
-    background: transparent;
-    border-color: {BORDER};
-    color: {TEXT_MUTED};
-    padding: 9px 18px;
+QPushButton#Record[recording="true"]:pressed {{
+    background-color: {REC_PRESSED};
+    border-color: {REC_PRESSED};
 }}
-QPushButton#Quit:hover {{
-    background-color: {BG_HOVER};
-    color: {RECORD_RED};
-    border-color: {RECORD_BORDER};
+QPushButton#Pause {{
+    background-color: {BTN_BG};
+    border: 1px solid {BTN_BORDER};
+    border-radius: {RADIUS}px;
+    padding: 10px 12px;
+    color: {TEXT_MAIN};
+    font-size: 13px;
+}}
+QPushButton#Pause:hover {{
+    background-color: {BTN_HOVER};
+}}
+QPushButton#Pause:pressed {{
+    background-color: {BTN_PRESSED};
+}}
+QPushButton#Pause:disabled {{
+    background-color: {BTN_DISABLED_BG};
+    color: {BTN_DISABLED_TEXT};
+    border-color: {HAIRLINE};
 }}
 /* --- Inputs --- */
 QLineEdit, QSpinBox {{
-    background-color: {BG_SUNKEN};
-    border: 1px solid {BORDER};
-    border-radius: {RADIUS_SMALL}px;
-    padding: 7px 10px;
+    background-color: {SURFACE};
+    border: 1px solid {BTN_BORDER};
+    border-radius: {RADIUS_SM}px;
+    padding: 6px 9px;
     color: {TEXT_MAIN};
-    selection-background-color: {ACCENT_INDIGO};
+    selection-background-color: {INK};
+    selection-color: #FFFFFF;
 }}
 QLineEdit:focus, QSpinBox:focus {{
-    border-color: {ACCENT_CYAN};
+    border-color: {TEXT_SOFT};
 }}
 QLineEdit:disabled, QSpinBox:disabled {{
-    color: {TEXT_DISABLED};
-    background-color: {BG_DISABLED};
+    color: {BTN_DISABLED_TEXT};
+    background-color: {BTN_DISABLED_BG};
 }}
 QSpinBox::up-button, QSpinBox::down-button {{
     width: 0px;
     border: none;
 }}
 QSlider::groove:horizontal {{
-    height: 5px;
-    background: {BG_INPUT};
-    border-radius: 2px;
-}}
-QSlider::sub-page:horizontal {{
-    background: {ACCENT_GRADIENT};
+    height: 4px;
+    background: {BTN_BORDER};
+    border: none;
     border-radius: 2px;
 }}
 QSlider::handle:horizontal {{
-    background: #FFFFFF;
-    border: 2px solid {ACCENT_CYAN};
-    width: 15px;
-    height: 15px;
+    background: {SURFACE};
+    border: 1px solid {HAIRLINE_STRONG};
+    width: 14px;
+    height: 14px;
     margin: -6px 0;
-    border-radius: 8px;
+    border-radius: 7px;
 }}
 QSlider::handle:horizontal:hover {{
-    border-color: #FFFFFF;
+    border-color: {TEXT_SOFT};
 }}
-QSlider:disabled::sub-page:horizontal {{
-    background: {TEXT_DISABLED};
+QSlider::handle:horizontal:disabled {{
+    border-color: {BTN_DISABLED_TEXT};
+    background: {BTN_DISABLED_BG};
 }}
-QSlider:disabled::handle:horizontal {{
-    border-color: {TEXT_DISABLED};
-    background: {BG_DISABLED};
+/* --- Transport + status bar --- */
+QFrame#Transport {{
+    background-color: {SURFACE};
+    border: none;
+    border-top: 1px solid {HAIRLINE};
 }}
-/* --- Scrollbars --- */
-QScrollBar:vertical {{
+QFrame#StatusBar {{
+    background-color: {CANVAS};
+    border: none;
+    border-top: 1px solid {HAIRLINE};
+}}
+QLabel#StatusText {{
+    color: {TEXT_MUTED};
+    font-size: 12px;
+}}
+QLabel#StatusText[error="true"] {{
+    color: {REC};
+}}
+QLabel#OutPath {{
+    color: {TEXT_FAINT};
+    font-size: 11px;
+}}
+QPushButton#FolderBtn {{
     background: transparent;
-    width: 10px;
-    margin: 4px 2px 4px 0;
+    border: 1px solid transparent;
+    border-radius: {RADIUS_SM}px;
+    padding: 4px;
 }}
-QScrollBar::handle:vertical {{
-    background: {BORDER_HOVER};
-    border-radius: 4px;
-    min-height: 30px;
-}}
-QScrollBar::handle:vertical:hover {{
-    background: {TEXT_DISABLED};
-}}
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
-    height: 0px;
-}}
-QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
-    background: transparent;
+QPushButton#FolderBtn:hover {{
+    background-color: {BTN_HOVER};
+    border-color: {HAIRLINE};
 }}
 QToolTip {{
-    background-color: {BG_CARD};
+    background-color: {SURFACE};
     color: {TEXT_MAIN};
-    border: 1px solid {BORDER_HOVER};
-    padding: 5px 8px;
+    border: 1px solid {HAIRLINE_STRONG};
+    padding: 4px 7px;
 }}
 """
 
 LANGUAGE_LABELS = {"en": "EN", "tr": "TR"}
-LANGUAGE_NAMES = {"en": "English", "tr": "Türkçe"}
 
 
 def _repolish(widget: QWidget) -> None:
@@ -377,73 +350,37 @@ def _repolish(widget: QWidget) -> None:
     widget.update()
 
 
-class ActivityBar(QWidget):
-    """Thin indeterminate bar; animates only while recording."""
+class StatusDot(QWidget):
+    """A 10px state dot. Colour carries the state; text stays plain."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setFixedHeight(4)
-        self._phase = 0.0
-        self._active = False
-        self._timer = QTimer(self)
-        self._timer.setInterval(40)
-        self._timer.timeout.connect(self._advance)
+        self.setFixedSize(10, 10)
+        self._color = QColor(READY)
 
-    def set_active(self, active: bool) -> None:
-        if active == self._active:
-            return
-        self._active = active
-        if active:
-            self._phase = 0.0
-            self._timer.start()
-        else:
-            self._timer.stop()
-            self._phase = 0.0
-        self.update()
-
-    def _advance(self) -> None:
-        if not self._active:
-            return
-        self._phase = (self._phase + 0.013) % 1.0
+    def set_color(self, color: str) -> None:
+        self._color = QColor(color)
         self.update()
 
     def paintEvent(self, _event) -> None:  # noqa: N802
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         p.setPen(Qt.NoPen)
-        radius = self.height() / 2.0
-        track = QPainterPath()
-        track.addRoundedRect(QRectF(self.rect()), radius, radius)
-        p.fillPath(track, QColor(BORDER))
-        if not self._active:
-            return
-        width = self.width()
-        segment = max(56.0, width * 0.38)
-        travel = width + segment
-        x = -segment + travel * self._phase
-        grad = QLinearGradient(x, 0, x + segment, 0)
-        start = QColor(ACCENT_INDIGO)
-        start.setAlpha(0)
-        mid = QColor(ACCENT_CYAN)
-        end = QColor(ACCENT_CYAN)
-        end.setAlpha(0)
-        grad.setColorAt(0.0, start)
-        grad.setColorAt(0.5, mid)
-        grad.setColorAt(1.0, end)
-        p.fillPath(track, grad)
+        p.setBrush(self._color)
+        p.drawEllipse(self.rect())
 
 
 class Switch(QAbstractButton):
-    """Hand-painted toggle so it matches the theme exactly."""
+    """Plain sliding toggle: grey when off, ink when on."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setCheckable(True)
         self.setCursor(Qt.PointingHandCursor)
-        self.setFixedSize(46, 26)
-        self._pos = 0.0
+        self.setFixedSize(44, 24)
+        self._pos = 1.0 if self.isChecked() else 0.0
         self._anim = QVariantAnimation(self)
-        self._anim.setDuration(160)
+        self._anim.setDuration(140)
         self._anim.setEasingCurve(QEasingCurve.OutCubic)
         self._anim.valueChanged.connect(self._apply_pos)
         self.toggled.connect(self._animate_to)
@@ -458,84 +395,51 @@ class Switch(QAbstractButton):
         self._pos = float(value)
         self.update()
 
+    def setChecked(self, checked: bool) -> None:  # noqa: N802
+        super().setChecked(checked)
+        # Constructor runs before signals exist; keep paint in sync.
+        self._pos = 1.0 if checked else 0.0
+        self.update()
+
     def sizeHint(self) -> QSize:  # noqa: N802
-        return QSize(46, 26)
+        return QSize(44, 24)
 
     def paintEvent(self, _event) -> None:  # noqa: N802
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        w, h = self.width(), self.height()
+        w, h = float(self.width()), float(self.height())
         track = QRectF(0.5, 0.5, w - 1.0, h - 1.0)
 
+        off = QColor(SURFACE_SUNKEN)
+        on = QColor(INK)
+        mixed = QColor(
+            round(off.red() + (on.red() - off.red()) * self._pos),
+            round(off.green() + (on.green() - off.green()) * self._pos),
+            round(off.blue() + (on.blue() - off.blue()) * self._pos),
+        )
         p.setPen(Qt.NoPen)
-        p.setBrush(QColor(BG_INPUT))
-        p.drawRoundedRect(track.adjusted(1.5, 1.5, -1.5, -1.5), 11, 11)
-
-        if self._pos > 0.01:
-            grad = QLinearGradient(track.topLeft(), track.topRight())
-            on = QColor(ACCENT_INDIGO)
-            on.setAlphaF(self._pos)
-            other = QColor(ACCENT_CYAN)
-            other.setAlphaF(self._pos)
-            grad.setColorAt(0.0, on)
-            grad.setColorAt(1.0, other)
-            p.setBrush(grad)
-            p.drawRoundedRect(track.adjusted(1.5, 1.5, -1.5, -1.5), 11, 11)
-
-        border = QColor(BORDER)
-        if self._pos > 0.5:
-            border = QColor(ACCENT_CYAN)
-            # Ramp the highlight in over the second half of the slide.
-            border.setAlphaF((self._pos - 0.5) * 2.0)
+        p.setBrush(mixed)
+        p.drawRoundedRect(track.adjusted(1.0, 1.0, -1.0, -1.0), 11, 11)
         p.setBrush(Qt.NoBrush)
-        p.setPen(QPen(border, 1.0))
-        p.drawRoundedRect(track, 12, 12)
+        p.setPen(QPen(QColor(HAIRLINE_STRONG), 1.0))
+        p.drawRoundedRect(track, 11.5, 11.5)
 
-        knob = h - 10.0
-        travel = w - knob - 8.0
+        knob = h - 8.0
+        travel = w - knob - 6.0
         p.setPen(Qt.NoPen)
         p.setBrush(QColor("#FFFFFF"))
-        p.drawEllipse(QPointF(4.0 + knob / 2 + travel * self._pos, h / 2.0),
-                     knob / 2, knob / 2)
-
-
-class RecordButton(QPushButton):
-    """Primary action: painted status glyph beside the label."""
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setObjectName("Record")
-        self.setCursor(Qt.PointingHandCursor)
-        self.setProperty("recording", False)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.setMinimumHeight(52)
-
-    def paintEvent(self, event) -> None:  # noqa: N802
-        super().paintEvent(event)
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        metrics = QFontMetrics(self.font())
-        text_w = metrics.horizontalAdvance(self.text())
-        cx = self.width() / 2.0 - text_w / 2.0 - 13.0
-        cy = self.height() / 2.0
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor("#FFFFFF"))
-        if self.property("recording"):
-            p.drawRoundedRect(QRectF(cx - 5.5, cy - 5.5, 11, 11), 2, 2)
-        else:
-            p.drawEllipse(QPointF(cx, cy), 6.0, 6.0)
-
-    def set_recording(self, recording: bool) -> None:
-        self.setProperty("recording", recording)
-        _repolish(self)
+        p.drawEllipse(
+            QPointF(3.0 + knob / 2 + travel * self._pos, h / 2.0),
+            knob / 2,
+            knob / 2,
+        )
 
 
 class SegmentedControl(QFrame):
-    """Row of mutually exclusive buttons (source, quality, language).
+    """Mutually exclusive options in a sunken well.
 
-    The group sits in a sunken "well" so the buttons read as one control
-    instead of floating labels. The checked button is filled with the
-    brand gradient, which keeps the selection obvious against the card.
+    The checked segment is plain white with a hairline edge — the same
+    idiom GNOME/macOS settings use — instead of a coloured fill.
     """
 
     changed = Signal(str)
@@ -548,14 +452,9 @@ class SegmentedControl(QFrame):
         super().__init__(parent)
         self.setObjectName("Segment")
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self._spacing = 2
         layout = QHBoxLayout(self)
-        # Integer margins only: a fractional QSS padding on the buttons
-        # makes Qt round the three segments to 115/114/115.
-        layout.setContentsMargins(
-            SEGMENT_PAD, SEGMENT_PAD, SEGMENT_PAD, SEGMENT_PAD
-        )
-        layout.setSpacing(self._spacing)
+        layout.setContentsMargins(SEGMENT_PAD, SEGMENT_PAD, SEGMENT_PAD, SEGMENT_PAD)
+        layout.setSpacing(2)
         self._group = QButtonGroup(self)
         self._group.setExclusive(True)
         self._buttons: list[QPushButton] = []
@@ -565,69 +464,15 @@ class SegmentedControl(QFrame):
             btn.setCheckable(True)
             btn.setCursor(Qt.PointingHandCursor)
             btn.setProperty("data", data)
-            # Expanding so the three segments share the control width; the
-            # explicit width in _relayout_buttons() keeps them flush.
             btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             btn.clicked.connect(lambda _=False, d=data: self.changed.emit(d))
             self._group.addButton(btn)
             layout.addWidget(btn, 1)
             self._buttons.append(btn)
-        # Pin the frame's minimum so a later relayout cannot ratchet the
-        # control wider: only the fixed button widths below decide its
-        # minimum, and they are recomputed from the allocated width.
-        self.setMinimumWidth(self._natural_width() * len(self._buttons))
-        self._relayout_buttons()
-
-    def _relayout_buttons(self) -> None:
-        """Give each segment an identical slice of the control width.
-
-        Fixed widths, computed from the frame's own width, are safe here:
-        the frame's sizeHint is driven by its *minimum*, which is pinned to
-        the natural label width and never grows. The frame stays Expanding
-        so it fills its column, and the buttons split what it allocates.
-
-        The selected segment reports a larger sizeHint than its siblings
-        (it carries a gradient background); giving every button an
-        explicit width stops Qt from handing that leftover pixel to it and
-        keeps the three columns flush at 115/115/115 instead of 115/114/115.
-        """
-        count = len(self._buttons)
-        if not count:
-            return
-        gaps = self._spacing * (count - 1)
-        available = self.width() - self._margins() - gaps
-        if available <= 0:
-            return
-        slice_w = max(1, available // count)
-        for btn in self._buttons:
-            btn.setFixedWidth(slice_w)
-
-    def _margins(self) -> int:
-        """Left + right inset this control keeps around its buttons."""
-        m = self.layout().contentsMargins()
-        return m.left() + m.right()
-
-    def _natural_width(self) -> int:
-        """Widest label plus the stylesheet's horizontal padding.
-
-        Measured with QFontMetrics rather than sizeHint(): sizeHint() of a
-        button that already carries a fixed width includes that width, so
-        reading it back here would compound on every relayout.
-        """
-        metrics = QFontMetrics(self._buttons[0].font())
-        return max(
-            metrics.horizontalAdvance(btn.text()) for btn in self._buttons
-        ) + SEGMENT_TEXT_PAD
-
-    def resizeEvent(self, event) -> None:  # noqa: N802
-        super().resizeEvent(event)
-        self._relayout_buttons()
 
     def set_labels(self, labels: list[str]) -> None:
         for btn, label in zip(self._buttons, labels):
             btn.setText(label)
-        # Translations change label widths; re-align the columns.
-        self._relayout_buttons()
 
     def current_data(self) -> str:
         btn = self._group.checkedButton()
@@ -644,14 +489,80 @@ class SegmentedControl(QFrame):
             btn.setEnabled(enabled)
 
 
+class NavButton(QPushButton):
+    """One sidebar row: vector icon on the left, label after it."""
+
+    ICON_W = 34  # matches the QSS padding-left
+
+    def __init__(self, icon_name: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("Nav")
+        self.setCheckable(True)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFixedHeight(NAV_H)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._icon = icon_name
+
+    def _ink(self) -> QColor:
+        if not self.isEnabled():
+            return QColor(TEXT_FAINT)
+        if self.isChecked():
+            return QColor(TEXT_MAIN)
+        return QColor(TEXT_MUTED) if not self.underMouse() else QColor(TEXT_MAIN)
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        super().paintEvent(event)
+        p = QPainter(self)
+        side = 16.0
+        x = (self.ICON_W - side) / 2.0
+        y = (self.height() - side) / 2.0
+        paint_icon(p, self._icon, QRectF(x, y, side, side), self._ink())
+
+    def enterEvent(self, event) -> None:  # noqa: N802
+        super().enterEvent(event)
+        self.update()
+
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        super().leaveEvent(event)
+        self.update()
+
+
+class RecordButton(QPushButton):
+    """Primary transport button: red dot when idle, square when recording."""
+
+    GLYPH_GAP = 10.0
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("Record")
+        self.setCursor(Qt.PointingHandCursor)
+        self.setProperty("recording", False)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setMinimumHeight(42)
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        super().paintEvent(event)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        metrics = QFontMetrics(self.font())
+        text_w = metrics.horizontalAdvance(self.text())
+        gx = self.width() / 2.0 - text_w / 2.0 - self.GLYPH_GAP - 7.0
+        gy = self.height() / 2.0 - 5.5
+        if self.property("recording"):
+            path = QPainterPath()
+            path.addRoundedRect(QRectF(gx, gy, 11, 11), 2, 2)
+            p.fillPath(path, QColor("#FFFFFF"))
+        else:
+            paint_icon(p, "dot", QRectF(gx, gy, 11, 11), QColor(REC))
+
+    def set_recording(self, recording: bool) -> None:
+        self.setProperty("recording", recording)
+        _repolish(self)
+
+
 class MainWindow(QMainWindow):
-    # Horizontal chrome that eats into the timer's usable width:
-    # outer layout margins + hero card margins + a safety gap.
-    TIMER_CHROME = 18 * 2 + 22 * 2 + 12
-    TIMER_MAX_PX = 54
-    TIMER_MIN_PX = 26
-    # Widest glyph run is "00:00:00" -> 8 mono characters.
-    TIMER_CHARS = 8
+    LABEL_COL = 148
+    OUT_PATH_PX = 240
 
     def __init__(self, cfg: AppConfig | None = None) -> None:
         super().__init__()
@@ -659,33 +570,30 @@ class MainWindow(QMainWindow):
         self.cfg.language = normalize(self.cfg.language)
         self.rec = create_backend(self.cfg)
         self.setWindowTitle("CastMane")
-        self.resize(440, 700)
-        self.setMinimumSize(340, 520)
+        self.resize(820, 600)
+        self.setMinimumSize(680, 500)
         self.setStyleSheet(STYLESHEET)
         icon_path = logo_path()
         if icon_path:
             self.setWindowIcon(QIcon(icon_path))
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setCentralWidget(scroll)
-
         root = QWidget()
         root.setObjectName("Root")
-        scroll.setWidget(root)
-        outer = QVBoxLayout(root)
-        outer.setContentsMargins(18, 18, 18, 18)
-        outer.setSpacing(14)
+        self.setCentralWidget(root)
+        frame = QVBoxLayout(root)
+        frame.setContentsMargins(0, 0, 0, 0)
+        frame.setSpacing(0)
 
-        outer.addWidget(self._build_header(icon_path))
-        outer.addWidget(self._build_hero())
-        outer.addLayout(self._build_actions())
-        outer.addWidget(self._build_tabbar())
-        outer.addWidget(self._build_pages())
-        outer.addWidget(self._build_footer())
-        outer.addStretch(1)
+        frame.addWidget(self._build_header())
+        body = QWidget()
+        body_layout = QHBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(0)
+        body_layout.addWidget(self._build_sidebar())
+        body_layout.addWidget(self._build_pane(), 1)
+        frame.addWidget(body, 1)
+        frame.addWidget(self._build_transport())
+        frame.addWidget(self._build_statusbar())
 
         self.timer = QTimer(self)
         self.timer.setInterval(500)
@@ -697,178 +605,152 @@ class MainWindow(QMainWindow):
 
     # --- Construction ---
 
-    def _build_header(self, icon_path: str | None) -> QWidget:
-        header = QWidget()
-        row = QHBoxLayout(header)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(12)
+    def _build_header(self) -> QFrame:
+        bar = QFrame()
+        bar.setObjectName("Header")
+        bar.setFixedHeight(HEADER_H)
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(14, 0, 14, 0)
+        row.setSpacing(10)
 
-        logo = QLabel()
-        logo.setFixedSize(42, 42)
-        logo.setScaledContents(True)
-        logo.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        if icon_path:
-            logo.setPixmap(QPixmap(icon_path))
-        row.addWidget(logo)
+        mark = QLabel()
+        mark.setFixedSize(28, 28)
+        mark.setScaledContents(True)
+        mark_file = mark_path()
+        if mark_file:
+            mark.setPixmap(QPixmap(mark_file))
+        row.addWidget(mark)
 
         text = QVBoxLayout()
         text.setContentsMargins(0, 0, 0, 0)
-        text.setSpacing(1)
-        title = QLabel("CastMane")
-        title.setObjectName("Wordmark")
-        title.setMinimumWidth(0)
-        font = QFont()
-        font.setBold(True)
-        title.setFont(font)
+        text.setSpacing(0)
+        name = QLabel("CastMane")
+        name.setObjectName("AppName")
         self.subtitle_lbl = QLabel()
-        self.subtitle_lbl.setObjectName("WordmarkSub")
-        self.subtitle_lbl.setWordWrap(True)
-        self.subtitle_lbl.setMinimumWidth(0)
-        text.addWidget(title)
+        self.subtitle_lbl.setObjectName("AppSub")
+        text.addWidget(name)
         text.addWidget(self.subtitle_lbl)
         row.addLayout(text, 1)
 
         self.lang_seg = SegmentedControl(
             [(LANGUAGE_LABELS[code], code) for code in SUPPORTED_LANGUAGES]
         )
-        self.lang_seg.setFixedWidth(96)
+        self.lang_seg.setFixedWidth(104)
         self.lang_seg.set_current_data(self.cfg.language)
         self.lang_seg.changed.connect(self._on_language_changed)
-        row.addWidget(self.lang_seg, 0)
-        return header
-
-    def _build_hero(self) -> QFrame:
-        card = QFrame()
-        card.setObjectName("Card")
-        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(22, 20, 22, 20)
-        layout.setSpacing(10)
-
-        pill_row = QHBoxLayout()
-        pill_row.setContentsMargins(0, 0, 0, 0)
-        self.pill_lbl = QLabel()
-        self.pill_lbl.setObjectName("Pill")
-        self.pill_lbl.setProperty("state", "ready")
-        self.pill_lbl.setAlignment(Qt.AlignCenter)
-        self.pill_lbl.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        pill_row.addWidget(self.pill_lbl)
-        pill_row.addStretch(1)
-        layout.addLayout(pill_row)
+        row.addWidget(self.lang_seg)
 
         self.timer_lbl = QLabel("00:00:00")
         self.timer_lbl.setObjectName("Timer")
-        self.timer_lbl.setAlignment(Qt.AlignCenter)
+        self.timer_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.timer_lbl.setProperty("recording", False)
-        self.timer_lbl.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
-        self.timer_lbl.setMinimumWidth(0)
-        self._timer_px = -1
-        self._apply_timer_font()
-        layout.addWidget(self.timer_lbl)
+        font = QFont()
+        font.setFamily("JetBrains Mono")
+        font.setStyleHint(QFont.Monospace)
+        font.setPixelSize(20)
+        font.setWeight(QFont.DemiBold)
+        self.timer_lbl.setFont(font)
+        self.timer_lbl.setFixedWidth(
+            QFontMetrics(font).horizontalAdvance("00:00:00") + 4
+        )
+        row.addWidget(self.timer_lbl)
+        return bar
 
-        self.activity = ActivityBar()
-        layout.addWidget(self.activity)
-
-        self.status_lbl = QLabel()
-        self.status_lbl.setObjectName("StatusLine")
-        self.status_lbl.setAlignment(Qt.AlignCenter)
-        self.status_lbl.setWordWrap(True)
-        layout.addWidget(self.status_lbl)
-
-        self.record_btn = RecordButton()
-        self.record_btn.clicked.connect(self.toggle)
-        layout.addWidget(self.record_btn)
-        return card
-
-    def _build_actions(self) -> QHBoxLayout:
-        row = QHBoxLayout()
-        row.setSpacing(10)
-
-        self.pause_btn = QPushButton()
-        self.pause_btn.setEnabled(False)
-        self.pause_btn.setCursor(Qt.PointingHandCursor)
-        self.pause_btn.clicked.connect(self.toggle_pause)
-        self.pause_btn.setMinimumHeight(38)
-        row.addWidget(self.pause_btn, 1)
-
-        self.quit_btn = QPushButton()
-        self.quit_btn.setObjectName("Quit")
-        self.quit_btn.setCursor(Qt.PointingHandCursor)
-        self.quit_btn.clicked.connect(self.close)
-        self.quit_btn.setMinimumHeight(38)
-        row.addWidget(self.quit_btn, 0)
-        return row
-
-    def _build_tabbar(self) -> QFrame:
-        bar = QFrame()
-        bar.setObjectName("TabBar")
-        bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        layout = QHBoxLayout(bar)
-        layout.setContentsMargins(4, 4, 4, 4)
+    def _build_sidebar(self) -> QFrame:
+        side = QFrame()
+        side.setObjectName("Sidebar")
+        side.setFixedWidth(SIDEBAR_W)
+        layout = QVBoxLayout(side)
+        layout.setContentsMargins(10, 12, 10, 12)
         layout.setSpacing(2)
 
         self.tab_group = QButtonGroup(self)
         self.tab_group.setExclusive(True)
-        self.tab_buttons: list[QPushButton] = []
-        for code in ("capture", "audio", "region"):
-            btn = QPushButton(code, self)
-            btn.setObjectName("Tab")
-            btn.setCheckable(True)
-            btn.setCursor(Qt.PointingHandCursor)
+        self.tab_buttons: list[NavButton] = []
+        for code, icon in (
+            ("capture", "monitor"),
+            ("audio", "audio"),
+            ("region", "region"),
+        ):
+            btn = NavButton(icon, self)
             btn.setProperty("page", code)
             btn.clicked.connect(lambda _=False, c=code: self._select_tab(c))
             self.tab_group.addButton(btn)
-            layout.addWidget(btn, 1)
+            layout.addWidget(btn)
             self.tab_buttons.append(btn)
         self.tab_buttons[0].setChecked(True)
-        return bar
 
-    def _build_pages(self) -> QFrame:
-        card = QFrame()
-        card.setObjectName("Card")
-        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        outer = QVBoxLayout(card)
-        outer.setContentsMargins(18, 16, 18, 18)
-        outer.setSpacing(0)
+        layout.addStretch(1)
+        self.backend_lbl = QLabel()
+        self.backend_lbl.setObjectName("SideNote")
+        self.backend_lbl.setWordWrap(True)
+        layout.addWidget(self.backend_lbl)
+        return side
+
+    def _build_pane(self) -> QWidget:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        holder = QWidget()
+        layout = QVBoxLayout(holder)
+        layout.setContentsMargins(22, 20, 26, 20)
+        layout.setSpacing(0)
 
         self.pages = QStackedWidget()
         self.pages.addWidget(self._build_capture_page())
         self.pages.addWidget(self._build_audio_page())
         self.pages.addWidget(self._build_region_page())
-        outer.addWidget(self.pages)
-        return card
+        layout.addWidget(self.pages)
+        layout.addStretch(1)
+        scroll.setWidget(holder)
+        return scroll
 
-    @staticmethod
-    def _field(
-        name_lbl: QLabel,
-        value_widget: QWidget,
+    def _row(
+        self,
+        label: QLabel,
+        control: QWidget,
         hint: QLabel | None = None,
     ) -> QWidget:
-        """Stacked field: label on top, control full width, hint below.
-
-        A vertical stack rather than label-beside-control: the control
-        gets the whole card width, which is what keeps three equal
-        segments on one line inside a narrow window.
-        """
+        """One settings row: fixed label column, control column, hint below."""
         box = QWidget()
         layout = QVBoxLayout(box)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(7)
-        name_lbl.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        layout.addWidget(name_lbl)
-        layout.addWidget(value_widget)
+        layout.setContentsMargins(0, 12, 0, 12)
+        layout.setSpacing(8)
+        top = QHBoxLayout()
+        top.setContentsMargins(0, 0, 0, 0)
+        top.setSpacing(12)
+        label.setFixedWidth(self.LABEL_COL)
+        label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        top.addWidget(label)
+        top.addWidget(control, 1)
+        layout.addLayout(top)
         if hint is not None:
-            layout.addWidget(hint)
+            hint.setWordWrap(True)
+            indent = QWidget()
+            indent_layout = QHBoxLayout(indent)
+            indent_layout.setContentsMargins(0, 0, 0, 0)
+            spacer = QWidget()
+            spacer.setFixedWidth(self.LABEL_COL + 12)
+            indent_layout.addWidget(spacer)
+            indent_layout.addWidget(hint, 1)
+            layout.addWidget(indent)
         return box
+
+    @staticmethod
+    def _hairline() -> QFrame:
+        line = QFrame()
+        line.setObjectName("Hairline")
+        return line
 
     def _build_capture_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(14)
+        layout.setSpacing(0)
 
         self.lbl_source = QLabel()
-        self.lbl_source.setObjectName("FieldName")
+        self.lbl_source.setObjectName("RowLabel")
         self.mode_seg = SegmentedControl(
             [("", "fullscreen"), ("", "window"), ("", "ask")]
         )
@@ -876,15 +758,11 @@ class MainWindow(QMainWindow):
         self.mode_seg.changed.connect(self._on_mode_changed)
         self.hint_mode = QLabel()
         self.hint_mode.setObjectName("Hint")
-        self.hint_mode.setWordWrap(True)
-        layout.addWidget(self._field(self.lbl_source, self.mode_seg, self.hint_mode))
-
-        divider = QFrame()
-        divider.setObjectName("Divider")
-        layout.addWidget(divider)
+        layout.addWidget(self._row(self.lbl_source, self.mode_seg, self.hint_mode))
+        layout.addWidget(self._hairline())
 
         self.lbl_quality = QLabel()
-        self.lbl_quality.setObjectName("FieldName")
+        self.lbl_quality.setObjectName("RowLabel")
         self.quality_seg = SegmentedControl(
             [("", "draft"), ("", "balanced"), ("", "high")]
         )
@@ -892,9 +770,8 @@ class MainWindow(QMainWindow):
         self.quality_seg.changed.connect(self._on_quality_changed)
         self.hint_quality = QLabel()
         self.hint_quality.setObjectName("Hint")
-        self.hint_quality.setWordWrap(True)
         layout.addWidget(
-            self._field(self.lbl_quality, self.quality_seg, self.hint_quality)
+            self._row(self.lbl_quality, self.quality_seg, self.hint_quality)
         )
         return page
 
@@ -902,60 +779,51 @@ class MainWindow(QMainWindow):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(14)
+        layout.setSpacing(0)
 
-        toggle_row = QHBoxLayout()
-        toggle_row.setContentsMargins(0, 0, 0, 0)
-        toggle_row.setSpacing(12)
         self.audio_lbl = QLabel()
-        self.audio_lbl.setObjectName("FieldName")
-        self.audio_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        toggle_row.addWidget(self.audio_lbl, 1)
+        self.audio_lbl.setObjectName("RowLabel")
+        audio_wrap = QWidget()
+        audio_row = QHBoxLayout(audio_wrap)
+        audio_row.setContentsMargins(0, 0, 0, 0)
         self.audio_sw = Switch()
         self.audio_sw.setChecked(self.cfg.audio_enabled)
         self.audio_sw.toggled.connect(self._on_audio_toggled)
-        toggle_row.addWidget(self.audio_sw, 0)
-        layout.addLayout(toggle_row)
-
-        divider = QFrame()
-        divider.setObjectName("Divider")
-        layout.addWidget(divider)
+        audio_row.addWidget(self.audio_sw)
+        audio_row.addStretch(1)
+        layout.addWidget(self._row(self.audio_lbl, audio_wrap))
+        layout.addWidget(self._hairline())
 
         self.lbl_gain = QLabel()
-        self.lbl_gain.setObjectName("FieldName")
-        gain_box = QHBoxLayout()
-        gain_box.setSpacing(10)
+        self.lbl_gain.setObjectName("RowLabel")
+        gain_wrap = QWidget()
+        gain_row = QHBoxLayout(gain_wrap)
+        gain_row.setContentsMargins(0, 0, 0, 0)
+        gain_row.setSpacing(10)
         self.gain_slider = QSlider(Qt.Horizontal)
         self.gain_slider.setRange(10, 500)
         self.gain_slider.setSingleStep(10)
         self.gain_slider.setPageStep(50)
         self.gain_slider.setValue(int(round(self.cfg.audio_gain * 100)))
         self.gain_slider.valueChanged.connect(self._on_gain_changed)
-        self.gain_slider.setMinimumWidth(0)
-        gain_box.addWidget(self.gain_slider, 1)
+        gain_row.addWidget(self.gain_slider, 1)
         self.gain_value = QLabel()
-        self.gain_value.setObjectName("FieldValue")
-        self.gain_value.setMinimumWidth(48)
+        self.gain_value.setObjectName("RowLabel")
+        self.gain_value.setMinimumWidth(52)
         self.gain_value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        gain_box.addWidget(self.gain_value, 0)
-        gain_container = QWidget()
-        gain_container.setLayout(gain_box)
-        gain_box.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self._field(self.lbl_gain, gain_container))
+        gain_row.addWidget(self.gain_value)
+        layout.addWidget(self._row(self.lbl_gain, gain_wrap))
+        layout.addWidget(self._hairline())
 
         self.lbl_source_name = QLabel()
-        self.lbl_source_name.setObjectName("FieldName")
+        self.lbl_source_name.setObjectName("RowLabel")
         self.audio_source_edit = QLineEdit(self.cfg.audio_source)
         self.audio_source_edit.setPlaceholderText("auto")
-        self.audio_source_edit.setMinimumWidth(0)
         self.audio_source_edit.textChanged.connect(self._on_audio_source_changed)
         self.hint_audio = QLabel()
         self.hint_audio.setObjectName("Hint")
-        self.hint_audio.setWordWrap(True)
         layout.addWidget(
-            self._field(
-                self.lbl_source_name, self.audio_source_edit, self.hint_audio
-            )
+            self._row(self.lbl_source_name, self.audio_source_edit, self.hint_audio)
         )
         return page
 
@@ -963,16 +831,16 @@ class MainWindow(QMainWindow):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
+        layout.setSpacing(0)
 
         self.lbl_region = QLabel()
-        self.lbl_region.setObjectName("FieldName")
-        layout.addWidget(self.lbl_region)
-
-        self.region_spins: dict[str, QSpinBox] = {}
-        grid = QGridLayout()
+        self.lbl_region.setObjectName("RowLabel")
+        grid_wrap = QWidget()
+        grid = QGridLayout(grid_wrap)
+        grid.setContentsMargins(0, 0, 0, 0)
         grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(10)
+        self.region_spins: dict[str, QSpinBox] = {}
         for i, (key, value) in enumerate(
             (
                 ("x", self.cfg.region_x),
@@ -982,41 +850,62 @@ class MainWindow(QMainWindow):
             )
         ):
             spin = QSpinBox()
-            spin.setPrefix(f"{key.upper()} ")
+            spin.setPrefix(f"{key.upper()}  ")
             spin.setRange(0, 10000)
             spin.setValue(value)
-            spin.setAlignment(Qt.AlignCenter)
+            spin.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             spin.valueChanged.connect(self._on_region_changed)
-            spin.setMinimumWidth(0)
             spin.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             self.region_spins[key] = spin
             grid.addWidget(spin, i // 2, i % 2)
-        layout.addLayout(grid)
-
         self.hint_region = QLabel()
         self.hint_region.setObjectName("Hint")
-        self.hint_region.setWordWrap(True)
-        layout.addWidget(self.hint_region)
+        layout.addWidget(self._row(self.lbl_region, grid_wrap, self.hint_region))
         return page
 
-    def _build_footer(self) -> QWidget:
-        footer = QWidget()
-        layout = QVBoxLayout(footer)
-        layout.setContentsMargins(2, 0, 2, 0)
-        layout.setSpacing(4)
-        self.output_lbl = QLabel()
-        self.output_lbl.setObjectName("FieldName")
-        self.outcome_lbl = QLabel()
-        self.outcome_lbl.setObjectName("Footer")
-        self.outcome_lbl.setWordWrap(True)
-        self.error_lbl = QLabel()
-        self.error_lbl.setObjectName("ErrorLine")
-        self.error_lbl.setWordWrap(True)
-        self.error_lbl.hide()
-        layout.addWidget(self.output_lbl)
-        layout.addWidget(self.outcome_lbl)
-        layout.addWidget(self.error_lbl)
-        return footer
+    def _build_transport(self) -> QFrame:
+        bar = QFrame()
+        bar.setObjectName("Transport")
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(14, 10, 14, 10)
+        row.setSpacing(10)
+        self.record_btn = RecordButton()
+        self.record_btn.clicked.connect(self.toggle)
+        row.addWidget(self.record_btn, 1)
+        self.pause_btn = QPushButton()
+        self.pause_btn.setObjectName("Pause")
+        self.pause_btn.setEnabled(False)
+        self.pause_btn.setCursor(Qt.PointingHandCursor)
+        self.pause_btn.clicked.connect(self.toggle_pause)
+        self.pause_btn.setFixedWidth(118)
+        row.addWidget(self.pause_btn)
+        return bar
+
+    def _build_statusbar(self) -> QFrame:
+        bar = QFrame()
+        bar.setObjectName("StatusBar")
+        bar.setFixedHeight(FOOTER_H)
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(14, 0, 10, 0)
+        row.setSpacing(8)
+        self.status_dot = StatusDot()
+        row.addWidget(self.status_dot)
+        self.status_lbl = QLabel()
+        self.status_lbl.setObjectName("StatusText")
+        self.status_lbl.setProperty("error", False)
+        self.status_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        row.addWidget(self.status_lbl, 1)
+        self.out_lbl = QLabel()
+        self.out_lbl.setObjectName("OutPath")
+        self.out_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        row.addWidget(self.out_lbl)
+        self.folder_btn = QPushButton()
+        self.folder_btn.setObjectName("FolderBtn")
+        self.folder_btn.setCursor(Qt.PointingHandCursor)
+        self.folder_btn.setFixedSize(26, 26)
+        self.folder_btn.clicked.connect(self.open_output_folder)
+        row.addWidget(self.folder_btn)
+        return bar
 
     # --- i18n ---
 
@@ -1034,7 +923,6 @@ class MainWindow(QMainWindow):
             )
 
     def _retranslate(self) -> None:
-        """Re-apply every static string after a language switch."""
         lang = self.cfg.language
         self.subtitle_lbl.setText(_get("subtitle", lang))
         self._refresh_idle_status()
@@ -1044,21 +932,17 @@ class MainWindow(QMainWindow):
             _get("rec_stop", lang) if recording else _get("rec_start", lang)
         )
         self.pause_btn.setText(
-            _get("resume", lang)
-            if self.rec.state.paused
-            else _get("pause", lang)
+            _get("resume", lang) if self.rec.state.paused else _get("pause", lang)
         )
-        self.quit_btn.setText(_get("quit", lang))
-        self._refresh_pill()
+        self._refresh_state_dot()
 
-        # Tab bar.
         for btn, key in zip(
             self.tab_buttons, ("tab_capture", "tab_audio", "tab_region")
         ):
             btn.setText(_get(key, lang))
+            btn.update()
 
-        # Capture page.
-        self.lbl_source.setText(_get("label_source", lang).upper())
+        self.lbl_source.setText(_get("label_source", lang))
         self.mode_seg.set_labels(
             [
                 _get("mode_fullscreen", lang),
@@ -1067,7 +951,7 @@ class MainWindow(QMainWindow):
             ]
         )
         self._refresh_mode_hint()
-        self.lbl_quality.setText(_get("label_quality", lang).upper())
+        self.lbl_quality.setText(_get("label_quality", lang))
         self.quality_seg.set_labels(
             [
                 _get("quality_draft", lang),
@@ -1077,37 +961,63 @@ class MainWindow(QMainWindow):
         )
         self._refresh_quality_hint()
 
-        # Audio page.
         self.audio_lbl.setText(_get("audio_check", lang))
-        self.lbl_gain.setText(_get("label_gain", lang).upper())
-        self.lbl_source_name.setText(_get("label_source_name", lang).upper())
+        self.lbl_gain.setText(_get("label_gain", lang))
+        self.lbl_source_name.setText(_get("label_source_name", lang))
         self.hint_audio.setText(_get("audio_hint", lang))
         self._refresh_gain_label()
 
-        # Region page.
-        self.lbl_region.setText(_get("label_region", lang).upper())
+        self.lbl_region.setText(_get("label_region", lang))
         self.hint_region.setText(_get("region_hint", lang))
 
-        # Footer.
-        self.output_lbl.setText(_get("label_output", lang).upper())
-        self.outcome_lbl.setText(_get("outcome", lang))
+        self.backend_lbl.setText(_get("backend_line", lang).format(name=self.rec.name))
+        self.folder_btn.setToolTip(_get("open_folder", lang))
+        self._refresh_outcome()
+        self._paint_folder_icon()
 
-    def _refresh_pill(self) -> None:
-        lang = self.cfg.language
+    def _paint_folder_icon(self) -> None:
+        size = self.folder_btn.size()
+        if size.width() <= 0:
+            return
+        pix = QPixmap(size)
+        pix.fill(Qt.transparent)
+        p = QPainter(pix)
+        inset = 5.0
+        paint_icon(
+            p,
+            "folder",
+            QRectF(inset, inset, size.width() - 2 * inset, size.height() - 2 * inset),
+            QColor(TEXT_SOFT),
+        )
+        p.end()
+        self.folder_btn.setIcon(QIcon(pix))
+
+    def _refresh_outcome(self) -> None:
+        from pathlib import Path
+
+        path = str(self.cfg.output_dir)
+        try:
+            pretty = str(Path(path).relative_to(Path.home()))
+            pretty = "~/" + pretty
+        except ValueError:
+            pretty = path
+        metrics = QFontMetrics(self.out_lbl.font())
+        self.out_lbl.setText(
+            metrics.elidedText(pretty, Qt.ElideMiddle, self.OUT_PATH_PX)
+        )
+        self.out_lbl.setToolTip(path)
+        self._paint_folder_icon()
+
+    def _refresh_state_dot(self) -> None:
         if self.rec.state.paused:
-            state, key = "paused", "pill_paused"
+            self.status_dot.set_color(PAUSED)
         elif self.rec.state.active:
-            state, key = "recording", "pill_recording"
+            self.status_dot.set_color(REC)
         else:
-            state, key = "ready", "pill_ready"
-        self.pill_lbl.setProperty("state", state)
-        self.pill_lbl.setText(_get(key, lang))
-        _repolish(self.pill_lbl)
+            self.status_dot.set_color(READY)
 
     def _refresh_mode_hint(self) -> None:
-        self.hint_mode.setText(
-            self.t(f"mode_{self.mode_seg.current_data()}_hint")
-        )
+        self.hint_mode.setText(self.t(f"mode_{self.mode_seg.current_data()}_hint"))
 
     def _refresh_quality_hint(self) -> None:
         self.hint_quality.setText(
@@ -1115,9 +1025,7 @@ class MainWindow(QMainWindow):
         )
 
     def _refresh_gain_label(self) -> None:
-        self.gain_value.setText(
-            self.t("gain_value").format(pct=self.gain_slider.value())
-        )
+        self.gain_value.setText(self.t("gain_value").format(pct=self.gain_slider.value()))
 
     def _on_language_changed(self, code: str) -> None:
         if not code:
@@ -1141,12 +1049,9 @@ class MainWindow(QMainWindow):
         self.record_btn.set_recording(recording)
         self.timer_lbl.setProperty("recording", recording)
         _repolish(self.timer_lbl)
-        self.activity.set_active(recording)
-        self._refresh_pill()
+        self._refresh_state_dot()
 
     def _set_inputs_enabled(self, enabled: bool) -> None:
-        # Tab buttons stay clickable so pages remain readable mid-recording;
-        # only the settings inside them are locked.
         self.mode_seg.set_enabled(enabled)
         self.quality_seg.set_enabled(enabled)
         self.lang_seg.set_enabled(enabled)
@@ -1160,17 +1065,15 @@ class MainWindow(QMainWindow):
             try:
                 final = self.rec.start()
             except FileNotFoundError:
-                self.status_lbl.setText(self.t("deps_missing"))
+                self._fail(self.t("deps_missing"))
                 return
             except Exception as e:  # noqa: BLE001
-                self.status_lbl.setText(self.t("start_failed").format(err=e))
+                self._fail(self.t("start_failed").format(err=e))
                 return
             self._clear_error()
             tmp = self.rec.state.tmp_path
             self.status_lbl.setText(
-                self.t("recording_to").format(
-                    name=tmp.name if tmp else final.name
-                )
+                self.t("recording_to").format(name=tmp.name if tmp else final.name)
             )
             self.record_btn.setText(self.t("rec_stop"))
             self.pause_btn.setEnabled(True)
@@ -1185,9 +1088,10 @@ class MainWindow(QMainWindow):
             self.pause_btn.setEnabled(False)
             self.pause_btn.setText(self.t("pause"))
             if out:
+                self._clear_error()
                 self.status_lbl.setText(self.t("saved").format(out=out))
             else:
-                self.status_lbl.setText(
+                self._fail(
                     self.t("error_prefix").format(err=self.rec.state.last_error)
                 )
             self.record_btn.setText(self.t("rec_start"))
@@ -1208,15 +1112,23 @@ class MainWindow(QMainWindow):
                 self.rec.pause()
                 self.pause_btn.setText(self.t("resume"))
                 self.status_lbl.setText(self.t("paused_status"))
-            self._refresh_pill()
+            self._clear_error()
+            self._refresh_state_dot()
         except Exception as e:  # noqa: BLE001
-            self.status_lbl.setText(self.t("pause_error").format(err=e))
+            self._fail(self.t("pause_error").format(err=e))
+
+    def open_output_folder(self) -> None:
+        path = self.cfg.output_dir
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+            subprocess.Popen(["xdg-open", str(path)])
+        except Exception as e:  # noqa: BLE001
+            self._fail(self.t("error_prefix").format(err=e))
 
     # --- Setting handlers ---
 
     def _on_audio_toggled(self, checked: bool) -> None:
         self.cfg.audio_enabled = checked
-        # The backend holds cfg by reference; changes mid-recording are blocked.
         try:
             self.rec.cfg.audio_enabled = checked
         except AttributeError:
@@ -1246,7 +1158,6 @@ class MainWindow(QMainWindow):
             self.cfg.apply_quality_preset(preset)
         except ValueError:
             return
-        # The backend holds cfg by reference; applies to the next recording.
         try:
             self.rec.cfg.apply_quality_preset(preset)
         except (AttributeError, ValueError):
@@ -1276,42 +1187,16 @@ class MainWindow(QMainWindow):
         for spin in self.region_spins.values():
             spin.setEnabled(enabled)
 
-    # --- Timer scaling ---
-
-    def _apply_timer_font(self) -> None:
-        """Shrink the mono timer so 00:00:00 always fits the hero card.
-
-        Set through the widget stylesheet on purpose: the global
-        `QWidget { font-size: 13px }` rule would otherwise win over
-        QWidget.setFont() and pin the timer to 13px.
-        """
-        available = max(0, self.width() - self.TIMER_CHROME)
-        # Mono advance is ~0.6em per glyph; leave a little slack.
-        size = int(available / (self.TIMER_CHARS * 0.62))
-        size = max(self.TIMER_MIN_PX, min(self.TIMER_MAX_PX, size))
-        if size == self._timer_px:
-            return
-        self._timer_px = size
-        self.timer_lbl.setStyleSheet(
-            f"QLabel#Timer {{ font-family: {FONT_MONO}; "
-            f"font-size: {size}px; font-weight: 700; }}"
-        )
-
-    def resizeEvent(self, event) -> None:  # noqa: N802
-        super().resizeEvent(event)
-        self._apply_timer_font()
-
     # --- Errors ---
 
     def _clear_error(self) -> None:
-        if not self.error_lbl.text():
-            return
-        self.error_lbl.clear()
-        self.error_lbl.hide()
+        self.status_lbl.setProperty("error", False)
+        _repolish(self.status_lbl)
 
-    def _show_error(self, err: object) -> None:
-        self.error_lbl.setText(str(err))
-        self.error_lbl.show()
+    def _fail(self, message: str) -> None:
+        self.status_lbl.setText(message)
+        self.status_lbl.setProperty("error", True)
+        _repolish(self.status_lbl)
 
     # --- Tick ---
 
@@ -1325,7 +1210,7 @@ class MainWindow(QMainWindow):
             self.status_lbl.setText(
                 self.t("error_prefix").format(err=self.rec.state.last_error)
             )
-            self._show_error(self.rec.state.last_error)
+            self._fail(self.rec.state.last_error)
             self.record_btn.setText(self.t("rec_start"))
             self.pause_btn.setEnabled(False)
             self.pause_btn.setText(self.t("pause"))

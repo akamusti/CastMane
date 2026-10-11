@@ -1,6 +1,6 @@
 [project]
 name = "castmane"
-version = "0.3.1"
+version = "0.4.0"
 description = "Crash-safe screen recorder for Linux (Wayland-first, Qt + GStreamer/FFmpeg)"
 readme = "README.md"
 license = { text = "GPL-3.0-or-later" }
