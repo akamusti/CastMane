@@ -118,7 +118,8 @@ so `PyGObject` is not needed.
 
 The interface is English with the light theme by default. Open the
 **Settings** tab to switch language (**EN** / **TR**) or theme (**Light** /
-**Dark**) — both apply instantly and are remembered on next launch.
+**Dark** / **Ocean** / **Midnight** / **Forest** / **Dracula** / **Nord**) —
+both apply instantly and are remembered on next launch.
 In code: `AppConfig(language="tr", theme="dark")`.
 
 **Recovering an interrupted recording:** look for the `*.mkv.part` (Wayland)

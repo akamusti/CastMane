@@ -5,17 +5,18 @@ from castmane.i18n import STRINGS, SUPPORTED_LANGUAGES
 
 
 def test_normalize_theme():
-    assert theme_mod.normalize_theme("dark") == "dark"
-    assert theme_mod.normalize_theme("light") == "light"
-    assert theme_mod.normalize_theme("  DARK  ") == "dark"
+    for name in theme_mod.SUPPORTED_THEMES:
+        assert theme_mod.normalize_theme(name) == name
+        assert theme_mod.normalize_theme(f"  {name.upper()}  ") == name
     assert theme_mod.normalize_theme("bogus") == theme_mod.DEFAULT_THEME
     assert theme_mod.normalize_theme("") == theme_mod.DEFAULT_THEME
 
 
 def test_themes_share_key_sets():
-    light = theme_mod.get_theme("light")
-    dark = theme_mod.get_theme("dark")
-    assert set(light) == set(dark)
+    themes = {name: theme_mod.get_theme(name) for name in theme_mod.SUPPORTED_THEMES}
+    first = next(iter(themes.values()))
+    for name, table in themes.items():
+        assert set(table) == set(first), name
     # Every colour the stylesheet/paint code needs must exist.
     for key in (
         "CANVAS", "SURFACE", "SURFACE_SUNKEN", "HAIRLINE", "HAIRLINE_STRONG",
@@ -25,9 +26,10 @@ def test_themes_share_key_sets():
         "BTN_DISABLED_BG", "BTN_DISABLED_TEXT",
         "REC", "REC_HOVER", "REC_PRESSED",
         "READY", "PAUSED",
+        "SWITCH_KNOB_OFF", "SWITCH_KNOB_ON",
     ):
-        assert light[key].startswith("#"), key
-        assert dark[key].startswith("#"), key
+        for name, table in themes.items():
+            assert table[key].startswith("#"), f"{name}:{key}"
 
 
 def test_get_theme_returns_copies():
@@ -65,9 +67,12 @@ def test_config_load_missing_or_corrupt(tmp_path):
 
 
 def test_settings_strings_translated():
+    theme_keys = ["label_theme", "theme_hint"] + [
+        f"theme_{name}" for name in theme_mod.SUPPORTED_THEMES
+    ]
     for key in (
         "tab_settings", "label_language", "language_hint",
-        "label_theme", "theme_light", "theme_dark", "theme_hint",
+        *theme_keys,
     ):
         for lang in SUPPORTED_LANGUAGES:
             assert STRINGS[lang].get(key), f"{key} missing in {lang}"

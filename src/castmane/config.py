@@ -55,8 +55,10 @@ class AppConfig:
     # UI language: "en" (default) or "tr". Switchable at runtime,
     # e.g. AppConfig(language="tr").
     language: str = DEFAULT_LANGUAGE
-    # UI theme: "light" (warm paper) or "dark". Switchable at runtime
-    # from the Settings page, e.g. AppConfig(theme="dark").
+    # UI theme: "light" (warm paper, default), "dark", "ocean" (cool
+    # light blue), "midnight" (dark navy), "forest" (dark moss),
+    # "dracula" or "nord". Switchable at runtime from the Settings page,
+    # e.g. AppConfig(theme="nord").
     theme: str = DEFAULT_THEME
     fps: int = 30
     # Crash-safe: ffmpeg/GStreamer writes fragmented MP4,

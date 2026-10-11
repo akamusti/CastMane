@@ -117,7 +117,8 @@ D-Bus üzerinden (`dbus-next`) sürer ve GStreamer'ı alt proses olarak
 ## Dil ve tema
 
 Arayüz varsayılan olarak İngilizce ve açık temalıdır. Dil (**EN** / **TR**)
-ya da tema (**Açık** / **Koyu**) değiştirmek için **Ayarlar** sekmesini açın —
+ya da tema (**Açık** / **Koyu** / **Okyanus** / **Gece** / **Orman** /
+**Dracula** / **Nord**) değiştirmek için **Ayarlar** sekmesini açın —
 ikisi de anında uygulanır ve bir sonraki açılışta hatırlanır.
 Kod ile: `AppConfig(language="tr", theme="dark")`.
 

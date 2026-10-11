@@ -436,29 +436,43 @@ class Switch(QAbstractButton):
         track = QRectF(0.5, 0.5, w - 1.0, h - 1.0)
 
         t = _active_theme(self)
-        off = QColor(t["SURFACE_SUNKEN"])
-        on = QColor(t["INK"])
-        mixed = QColor(
-            round(off.red() + (on.red() - off.red()) * self._pos),
-            round(off.green() + (on.green() - off.green()) * self._pos),
-            round(off.blue() + (on.blue() - off.blue()) * self._pos),
-        )
+        if self.isEnabled():
+            off = QColor(t["SURFACE_SUNKEN"])
+            on = QColor(t["INK"])
+            knob_off = QColor(t.get("SWITCH_KNOB_OFF", "#FFFFFF"))
+            knob_on = QColor(t.get("SWITCH_KNOB_ON", t["PRIMARY_TEXT"]))
+            border = QColor(t["HAIRLINE_STRONG"])
+        else:
+            off = QColor(t["BTN_DISABLED_BG"])
+            on = QColor(t["BTN_DISABLED_BG"])
+            knob_off = QColor(t["BTN_DISABLED_TEXT"])
+            knob_on = QColor(t["BTN_DISABLED_TEXT"])
+            border = QColor(t["HAIRLINE"])
+
+        def _mix(a: QColor, b: QColor, pos: float) -> QColor:
+            return QColor(
+                round(a.red() + (b.red() - a.red()) * pos),
+                round(a.green() + (b.green() - a.green()) * pos),
+                round(a.blue() + (b.blue() - a.blue()) * pos),
+            )
+
         p.setPen(Qt.NoPen)
-        p.setBrush(mixed)
+        p.setBrush(_mix(off, on, self._pos))
         p.drawRoundedRect(track.adjusted(1.0, 1.0, -1.0, -1.0), 11, 11)
         p.setBrush(Qt.NoBrush)
-        p.setPen(QPen(QColor(t["HAIRLINE_STRONG"]), 1.0))
+        p.setPen(QPen(border, 1.0))
         p.drawRoundedRect(track, 11.5, 11.5)
 
         knob = h - 8.0
         travel = w - knob - 6.0
+        knob_center = QPointF(3.0 + knob / 2 + travel * self._pos, h / 2.0)
         p.setPen(Qt.NoPen)
-        p.setBrush(QColor("#FFFFFF"))
-        p.drawEllipse(
-            QPointF(3.0 + knob / 2 + travel * self._pos, h / 2.0),
-            knob / 2,
-            knob / 2,
-        )
+        p.setBrush(_mix(knob_off, knob_on, self._pos))
+        p.drawEllipse(knob_center, knob / 2, knob / 2)
+        # Hairline edge so a light knob still reads on a light track.
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(border, 1.0))
+        p.drawEllipse(knob_center, knob / 2 - 0.5, knob / 2 - 0.5)
 
 
 class SegmentedControl(QFrame):
@@ -1048,7 +1062,9 @@ class MainWindow(QMainWindow):
 
         self.lbl_theme = QLabel()
         self.lbl_theme.setObjectName("RowLabel")
-        self.theme_seg = SegmentedControl([("", "light"), ("", "dark")])
+        self.theme_seg = SegmentedControl(
+            [("", name) for name in theme_mod.SUPPORTED_THEMES]
+        )
         self.theme_seg.set_current_data(self.cfg.theme)
         self.theme_seg.changed.connect(self._on_theme_changed)
         self.hint_theme = QLabel()
@@ -1197,10 +1213,7 @@ class MainWindow(QMainWindow):
         self.hint_language.setText(_get("language_hint", lang))
         self.lbl_theme.setText(_get("label_theme", lang))
         self.theme_seg.set_labels(
-            [
-                _get("theme_light", lang),
-                _get("theme_dark", lang),
-            ]
+            [_get(f"theme_{name}", lang) for name in theme_mod.SUPPORTED_THEMES]
         )
         self.hint_theme.setText(_get("theme_hint", lang))
 
@@ -1290,6 +1303,7 @@ class MainWindow(QMainWindow):
         for btn in self.tab_buttons:
             btn.update()
         self.audio_sw.update()
+        self.cursor_sw.update()
         self.record_btn.update()
         self.cfg.save()
 
