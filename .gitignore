@@ -17,6 +17,9 @@ website/node_modules/
 website/dist/
 website/.astro/
 npm-debug.log*
-# secrets / local env (no secrets in repo yet, preventive)
+# secrets / local env
+# CastMane ships no credentials; .env* stays ignored as a safety net in case
+# a local token is ever added. .env.example stays tracked on purpose.
 .env
 .env.*
+!.env.example
