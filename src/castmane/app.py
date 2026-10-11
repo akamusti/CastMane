@@ -49,12 +49,14 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QPushButton,
     QScrollArea,
     QSizePolicy,
     QSlider,
     QSpinBox,
     QStackedWidget,
+    QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
 )
@@ -636,7 +638,14 @@ class MainWindow(QMainWindow):
         self._autostop_timer = QTimer(self)
         self._autostop_timer.setSingleShot(True)
         self._autostop_timer.timeout.connect(self._auto_stop_timeout)
+        # Remaining auto-stop time (ms), so pause freezes the deadline
+        # instead of letting it fire (and get skipped) mid-pause.
+        self._autostop_remaining_ms = 0
+        # Throttle the live disk-space guard: check every ~5s, not every tick.
+        self._disk_check_counter = 0
+        self._quit_requested = False
         self._setup_shortcuts()
+        self._setup_tray()
 
         self._is_wayland = session_is_wayland()
         self._retranslate()
@@ -1199,6 +1208,8 @@ class MainWindow(QMainWindow):
         self.folder_btn.setToolTip(_get("open_folder", lang))
         self._refresh_outcome()
         self._paint_folder_icon()
+        self._refresh_tray()
+        self._refresh_title()
 
     def _paint_folder_icon(self) -> None:
         size = self.folder_btn.size()
@@ -1305,6 +1316,92 @@ class MainWindow(QMainWindow):
             sc.setContext(Qt.WindowShortcut)
             sc.activated.connect(slot)
 
+    # --- System tray + notifications ---
+
+    def _setup_tray(self) -> None:
+        self.tray: QSystemTrayIcon | None = None
+        try:
+            if not QSystemTrayIcon.isSystemTrayAvailable():
+                return
+        except Exception:  # noqa: BLE001
+            return
+        icon_path = logo_path()
+        icon = QIcon(icon_path) if icon_path else self.windowIcon()
+        tray = QSystemTrayIcon(icon, self)
+        menu = QMenu()
+        self.tray_toggle_act = menu.addAction("")
+        self.tray_toggle_act.triggered.connect(self._tray_toggle_window)
+        self.tray_record_act = menu.addAction("")
+        self.tray_record_act.triggered.connect(self.toggle)
+        self.tray_folder_act = menu.addAction("")
+        self.tray_folder_act.triggered.connect(self.open_output_folder)
+        menu.addSeparator()
+        self.tray_quit_act = menu.addAction("")
+        self.tray_quit_act.triggered.connect(self._tray_quit)
+        tray.setContextMenu(menu)
+        tray.activated.connect(self._tray_activated)
+        tray.show()
+        self.tray = tray
+        self._refresh_tray()
+
+    def _tray_activated(self, reason) -> None:
+        if reason == QSystemTrayIcon.Trigger:
+            self._tray_toggle_window()
+
+    def _tray_toggle_window(self) -> None:
+        if self.isVisible():
+            self.hide()
+        else:
+            self.show()
+            self.raise_()
+            self.activateWindow()
+
+    def _tray_quit(self) -> None:
+        self._quit_requested = True
+        self.close()
+
+    def _notify(self, message: str) -> None:
+        if self.tray is None:
+            return
+        try:
+            self.tray.showMessage("CastMane", message, QSystemTrayIcon.Information, 4000)
+        except Exception:  # noqa: BLE001
+            pass
+
+    @staticmethod
+    def _fmt_elapsed(seconds: float) -> str:
+        total = int(max(0, seconds))
+        return f"{total // 3600:02d}:{total // 60 % 60:02d}:{total % 60:02d}"
+
+    def _refresh_tray(self) -> None:
+        if self.tray is None:
+            return
+        lang = self.cfg.language
+        elapsed = self._fmt_elapsed(self.rec.elapsed)
+        if self.rec.state.paused:
+            tip = _get("tray_paused", lang).format(elapsed=elapsed)
+        elif self.rec.state.active:
+            tip = _get("tray_recording", lang).format(elapsed=elapsed)
+        else:
+            tip = _get("tray_ready", lang)
+        self.tray.setToolTip(tip)
+        recording = self.rec.state.active
+        self.tray_toggle_act.setText(
+            _get("tray_hide", lang) if self.isVisible() else _get("tray_show", lang)
+        )
+        self.tray_record_act.setText(
+            _get("tray_stop", lang) if recording else _get("tray_record", lang)
+        )
+        self.tray_folder_act.setText(_get("tray_open_folder", lang))
+        self.tray_quit_act.setText(_get("tray_quit", lang))
+
+    def _refresh_title(self) -> None:
+        if self.rec.state.active:
+            marker = "❚❚" if self.rec.state.paused else "●"
+            self.setWindowTitle(f"{marker} {self.timer_lbl.text()} — CastMane")
+        else:
+            self.setWindowTitle("CastMane")
+
     # --- Recording control ---
 
     def _set_recording_ui(self, recording: bool) -> None:
@@ -1394,11 +1491,18 @@ class MainWindow(QMainWindow):
         self._set_recording_ui(True)
         self.timer.start()
         if self.cfg.auto_stop_min > 0:
-            self._autostop_timer.start(self.cfg.auto_stop_min * 60 * 1000)
+            self._autostop_remaining_ms = self.cfg.auto_stop_min * 60 * 1000
+            self._autostop_timer.start(self._autostop_remaining_ms)
+        else:
+            self._autostop_remaining_ms = 0
+        self._notify(self.t("notify_started"))
+        self._refresh_tray()
+        self._refresh_title()
 
-    def _stop_recording(self) -> None:
+    def _stop_recording(self, reason: str = "") -> None:
         self._countdown_timer.stop()
         self._autostop_timer.stop()
+        self._autostop_remaining_ms = 0
         self._countdown_left = 0
         out = self.rec.stop()
         self.timer.stop()
@@ -1408,12 +1512,19 @@ class MainWindow(QMainWindow):
         if out:
             self._clear_error()
             self.status_lbl.setText(self.t("saved").format(out=out))
+            self._notify(
+                self.t("notify_autostop")
+                if reason == "autostop"
+                else self.t("notify_stopped").format(out=out.name)
+            )
         else:
             self._fail(
                 self.t("error_prefix").format(err=self.rec.state.last_error)
             )
         self.record_btn.setText(self.t("rec_start"))
         self._set_recording_ui(False)
+        self._refresh_tray()
+        self._refresh_title()
 
     def toggle_pause(self) -> None:
         if not self.rec.state.active:
@@ -1422,16 +1533,24 @@ class MainWindow(QMainWindow):
             if self.rec.state.paused:
                 self.rec.resume()
                 self.pause_btn.setText(self.t("pause"))
+                if self._autostop_remaining_ms > 0:
+                    self._autostop_timer.start(self._autostop_remaining_ms)
                 tmp = self.rec.state.tmp_path
                 self.status_lbl.setText(
                     self.t("recording_to").format(name=tmp.name if tmp else "")
                 )
             else:
                 self.rec.pause()
+                if self._autostop_timer.isActive():
+                    # Freeze the deadline: resume() restarts it with the rest.
+                    self._autostop_remaining_ms = self._autostop_timer.remainingTime()
+                    self._autostop_timer.stop()
                 self.pause_btn.setText(self.t("resume"))
                 self.status_lbl.setText(self.t("paused_status"))
             self._clear_error()
             self._refresh_state_dot()
+            self._refresh_tray()
+            self._refresh_title()
         except Exception as e:  # noqa: BLE001
             self._fail(self.t("pause_error").format(err=e))
 
@@ -1587,7 +1706,18 @@ class MainWindow(QMainWindow):
 
     def _auto_stop_timeout(self) -> None:
         if self.rec.state.active and not self.rec.state.paused:
+            self._stop_recording(reason="autostop")
+
+    def _disk_guard_tick(self) -> None:
+        """Live disk guard: stop cleanly before the disk fills mid-take."""
+        self._disk_check_counter += 1
+        if self._disk_check_counter < 10:
+            return
+        self._disk_check_counter = 0
+        free_mb = self.cfg.output_dir_free_mb()
+        if free_mb is not None and free_mb < MIN_FREE_MB:
             self._stop_recording()
+            self._fail(self.t("notify_disk_stopped").format(mb=MIN_FREE_MB))
 
     def _set_region_enabled(self, enabled: bool) -> None:
         for spin in self.region_spins.values():
@@ -1612,6 +1742,9 @@ class MainWindow(QMainWindow):
             self.timer_lbl.setText(
                 f"{total // 3600:02d}:{total // 60 % 60:02d}:{total % 60:02d}"
             )
+            self._refresh_title()
+            self._refresh_tray()
+            self._disk_guard_tick()
         if self.rec.state.last_error and not self.rec.state.active:
             self.status_lbl.setText(
                 self.t("error_prefix").format(err=self.rec.state.last_error)
@@ -1625,6 +1758,18 @@ class MainWindow(QMainWindow):
             self.timer.stop()
 
     def closeEvent(self, event) -> None:  # noqa: N802
+        # Recording + tray available: minimize to tray instead of killing
+        # the take. Tray menu Quit still exits for real.
+        if (
+            self.rec.state.active
+            and not self._quit_requested
+            and self.tray is not None
+        ):
+            event.ignore()
+            self.hide()
+            self._notify(self.t("notify_minimized"))
+            self._refresh_tray()
+            return
         self._countdown_timer.stop()
         self._autostop_timer.stop()
         if self.rec.state.active:
