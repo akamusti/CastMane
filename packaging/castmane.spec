@@ -17,7 +17,7 @@ a = Analysis(
     [str(SPEC_DIR / "app_entry.py")],
     pathex=[str(SRC)],
     binaries=[],
-    datas=[(str(SRC / "castmane" / "assets" / "logo.png"), "castmane/assets")],
+    datas=[(str(SRC / "castmane" / "assets"), "castmane/assets")],
     hiddenimports=["dbus_next", "dbus_next.aio"],
     hookspath=[],
     hooksconfig={},
