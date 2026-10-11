@@ -30,13 +30,30 @@ Kurallar:
 
 - `PyGObject` kullanma. Portal istemcisi `dbus-next` + subprocess `gst-launch` ile çalışır.
 - Kayıtlar `.part` dosyasına yazılır, temiz stop sonrası `os.replace()` ile atomik rename yapılır.
+- `finalize_part()` mantığını değiştirme: boş/sıfır baytlık `.part` promote edilmez, crash artığı silinmez.
 - Portal imzaları runtime'da keşfedilir (`session_handle` tipi, `Start` argüman sırası) — hardcode etme.
+- Backend seçimi `WAYLAND_DISPLAY` / `XDG_SESSION_TYPE` ile yapılır (`backends/__init__.py`) — elle override ekleme.
 - UI varsayılanı İngilizce + light tema; `AppConfig(language, theme)` ile değişir.
+- `AppConfig.save()/load()/from_dict()` asla exception fırlatmaz: bozuk/eski settings dosyası = default'lara dön. Bu garantiyi bozma.
+- Pause = `SIGSTOP`, resume = `SIGCONT`; stop sırasında pause aktifse önce resume yap (trailer temiz yazılsın).
+- Kapatma sırası: `SIGINT` → bekle → `SIGTERM` → `SIGKILL`. Sıralamayı değiştirme.
+- Subprocess çağrılarında `shell=True` yasak; argümanları liste olarak geçir.
+- Ses: Wayland'de `avenc_aac`, X11'de `aac`. `audio_gain` en fazla `5.0` (clipping riski).
+- Dosya adı `sanitize_prefix()` + `YYYY-MM-DD_HH-MM-SS` timestamp; boş alan `MIN_FREE_MB` (100 MB) altında kayda başlama.
+- Yeni UI metni eklenirse `i18n.py`'da `en` + `tr` anahtarları birebir aynı olmalı; `get()` İngilizce'ye düşer.
 
 ## Test
 
-- Yeni/degisen kayıt mantığı için `tests/` altına test ekle, `ffprobe` kanıtını PR açıklamasına koy.
+- Yeni/değişen kayıt mantığı için `tests/` altına test ekle, `ffprobe` kanıtını PR açıklamasına koy.
 - Wayland portal gerçek donanım gerektirir; headless ortamda subprocess mock'la, gerçek portal bekleme.
+- GUI testi gerekiyorsa `QT_QPA_PLATFORM=offscreen` ile çalıştır, gerçek ekran bekleme.
+
+## Repo hijyeni (ajanların sık bozduğu yerler)
+
+- `website/` Astro Starlight sitesidir — Python venv'e kurma, `node_modules` / `dist` / `.astro` commit'leme.
+- AppImage derlemesi `packaging/build-appimage.sh` ile yapılır, `.venv-appimage` kullanır — normal `.venv`'i kirletme.
+- `README.md` kullanıcıya dönük değişirse `README.tr.md`'yi de senkron tut.
+- Commit'e ASLA katma: `*.part`, `*.AppImage`, `AppDir/`, `build/`, `dist/`, `Videos/`, `.venv*/`, `__pycache__/`, `.env`.
 
 ## Zorunlu güvenlik kontrolü (her görev bitiminde)
 
