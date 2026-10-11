@@ -3,17 +3,22 @@ title: Audio
 description: Microphone and system-sound capture with software gain.
 ---
 
-Tick **Record audio (mic)** in the window, or in code:
+Tick **Record audio** in the window and pick the source — **Mic**,
+**Desktop** (system sound), or **Both** (mixed into one track) — or in code:
 
 ```python
 from castmane.config import AppConfig
 cfg = AppConfig(audio_enabled=True)  # default mic
 # system sound instead:
-# cfg = AppConfig(audio_enabled=True,
-#     audio_source="alsa_output.pci-0000_00_1f.3.analog-stereo.monitor")
+# cfg = AppConfig(audio_enabled=True, audio_mode="desktop")
+# mic + system sound mixed:
+# cfg = AppConfig(audio_enabled=True, audio_mode="both")
 ```
 
-List devices with `pactl list short sources`. Audio is encoded as AAC
+List devices with `pactl list short sources`. "Desktop" auto-detects the
+first `.monitor` source; paste a device name into the desktop-source field
+(or `audio_desktop_source`) when auto-detection picks the wrong sink. Audio
+is encoded as AAC
 (`avenc_aac` on Wayland, `aac` on X11) into the same crash-safe file, so a
 `kill -9` recording and its MP4 remux both keep the audio track.
 

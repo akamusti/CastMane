@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from .audio import normalize_audio_mode
 from .i18n import DEFAULT_LANGUAGE, normalize
 
 
@@ -22,11 +23,18 @@ class AppConfig:
     video_bitrate_kbps: int = 8000  # portal/GStreamer pipeline
     fragment_ms: int = 1000  # mp4mux fragment-duration: file survives a crash
     audio_enabled: bool = False  # when True, mic/system sound is recorded too
+    # What to record: "mic" (microphone via the default source), "desktop"
+    # (system sound via a .monitor device), or "both" (mixed together).
+    audio_mode: str = "mic"
     # Pulse/PipeWire source name: "auto"/"default"/"mic" -> default source
     # (usually the mic). For system sound pass a monitor device, e.g.:
     # "alsa_output.pci-0000_00_1f.3.analog-stereo.monitor".
     # List with `pactl list short sources`.
     audio_source: str = "auto"
+    # Desktop-audio source: "auto" -> first `.monitor` source found via
+    # `pactl list short sources` ("" when none is found). Set an explicit
+    # `.monitor` device name when auto-detection picks the wrong sink.
+    audio_desktop_source: str = "auto"
     audio_bitrate_kbps: int = 128  # AAC audio bitrate
     # Software audio gain (multiplier): 1.0 = 100% (no change).
     # Monitor sources (system sound) are much quieter than mic input,
@@ -39,6 +47,7 @@ class AppConfig:
 
     def __post_init__(self) -> None:
         self.language = normalize(self.language)
+        self.audio_mode = normalize_audio_mode(self.audio_mode)
 
     def apply_quality_preset(self, name: str) -> None:
         presets = {

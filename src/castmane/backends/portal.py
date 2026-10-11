@@ -122,6 +122,32 @@ def _resolve_call(iface, *candidates):
     raise RuntimeError(f"portal method not found {candidates}, available: {avail}")
 
 
+def _pulsesrc_branch(
+    device: str, sink: str, gain: float = 1.0, bitrate: int = 0
+) -> list[str]:
+    """One `pulsesrc ... ! <sink>` capture branch.
+
+    `device` "" or "default" means "PulseAudio default" (no device property).
+    Software gain: monitor (system sound) input is usually much quieter than
+    mic input; compensate with volume >1.0 (nothing added at 1.0, pipeline
+    unchanged). When `sink` is "mux." the branch carries its own AAC encoder
+    (single-source mode, needs `bitrate`); otherwise it feeds an audiomixer
+    pad and the shared encoder lives downstream of the mixer.
+    """
+    branch: list[str] = ["pulsesrc"]
+    if device and device != "default":
+        branch.append(f"device={device}")
+    branch += ["!", "audioconvert", "!", "audioresample"]
+    if gain != 1.0:
+        branch += ["!", "volume", f"volume={gain}"]
+    branch += ["!", "queue", "!"]
+    if sink == "mux.":
+        branch += ["avenc_aac", f"bitrate={bitrate}", "!", "aacparse", "!", sink]
+    else:
+        branch += [sink]
+    return branch
+
+
 class PortalRecorder:
     """Wayland screen recording. Same interface as FfmpegX11Recorder:
     start() -> final path, stop() -> finished file or None."""
@@ -263,6 +289,12 @@ class PortalRecorder:
     # -- komut --
 
     def build_cmd(self, node: int, fd: int, tmp: Path) -> list[str]:
+        from ..audio import (
+            normalize_audio_mode,
+            resolve_desktop_source,
+            resolve_mic_source,
+        )
+
         # The fd number is preserved as-is in the child via pass_fds.
         # gst-launch treats each argv item as a separate token: elements and
         # properties must be SEPARATE list items (merging them into one item
@@ -288,26 +320,39 @@ class PortalRecorder:
             "!",
         ]
         if self.cfg.audio_enabled:
-            cmd += ["matroskamux", "name=mux", "!", "filesink", f"location={tmp}"]
-            audio_src = self.cfg.audio_source
-            audio_branch: list[str] = ["pulsesrc"]
-            if audio_src not in ("", "auto", "default", "mic"):
-                audio_branch.append(f"device={audio_src}")
-            cmd += audio_branch + [
-                "!", "audioconvert",
-                "!", "audioresample",
-            ]
-            # Software gain: monitor (system sound) input is usually much
-            # quieter than mic input; compensate with volume >1.0
-            # (nothing added at 1.0, pipeline unchanged).
-            if self.cfg.audio_gain != 1.0:
-                cmd += ["!", "volume", f"volume={self.cfg.audio_gain}"]
-            cmd += [
-                "!", "queue",
-                "!", "avenc_aac", f"bitrate={self.cfg.audio_bitrate_kbps * 1000}",
-                "!", "aacparse",
-                "!", "mux.",
-            ]
+            mode = normalize_audio_mode(self.cfg.audio_mode)
+            if mode == "both":
+                # Two capture branches (mic + desktop monitor) mixed down to
+                # one track: ... ! mix. + ... ! mix. + mix. ! encoder ! mux.
+                cmd += ["matroskamux", "name=mux", "!", "filesink", f"location={tmp}"]
+                cmd += ["audiomixer", "name=mix", "!"]
+                if self.cfg.audio_gain != 1.0:
+                    cmd += ["volume", f"volume={self.cfg.audio_gain}", "!"]
+                cmd += [
+                    "audioconvert",
+                    "!", "audioresample",
+                    "!", "queue",
+                    "!", "avenc_aac", f"bitrate={self.cfg.audio_bitrate_kbps * 1000}",
+                    "!", "aacparse",
+                    "!", "mux.",
+                ]
+                cmd += _pulsesrc_branch(
+                    resolve_mic_source(self.cfg.audio_source), "mix."
+                )
+                cmd += _pulsesrc_branch(
+                    resolve_desktop_source(self.cfg.audio_desktop_source),
+                    "mix.",
+                )
+            else:
+                cmd += ["matroskamux", "name=mux", "!", "filesink", f"location={tmp}"]
+                if mode == "desktop":
+                    src = resolve_desktop_source(self.cfg.audio_desktop_source)
+                else:
+                    src = resolve_mic_source(self.cfg.audio_source)
+                cmd += _pulsesrc_branch(
+                    src, "mux.", gain=self.cfg.audio_gain,
+                    bitrate=self.cfg.audio_bitrate_kbps * 1000,
+                )
         else:
             cmd += ["matroskamux", "!", "filesink", f"location={tmp}"]
         return cmd

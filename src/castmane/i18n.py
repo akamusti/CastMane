@@ -33,10 +33,18 @@ STRINGS: dict[str, dict[str, str]] = {
         "quality_balanced_hint": "30 fps · 8 Mbps — the default.",
         "quality_high_hint": "60 fps · 16 Mbps — needs a fast CPU.",
         "audio_check": "Record audio",
-        "audio_hint": "Uses the PulseAudio default source. "
-        "For system sound, pick a .monitor device in the source field "
+        "audio_mode": "Audio source",
+        "audio_mode_mic": "Mic",
+        "audio_mode_desktop": "Desktop",
+        "audio_mode_both": "Both",
+        "audio_mode_mic_hint": "Record the microphone via the default source.",
+        "audio_mode_desktop_hint": "Record system sound via a .monitor device.",
+        "audio_mode_both_hint": "Mix microphone and system sound into one track.",
+        "audio_hint": "Mic uses the PulseAudio default source. Desktop uses the "
+        "auto-detected .monitor device — or paste one explicitly "
         "(`pactl list short sources`).",
-        "label_source_name": "PulseAudio source",
+        "label_source_name": "Microphone source",
+        "label_desktop_source": "Desktop source",
         "label_gain": "Gain",
         "gain_value": "{pct}%",
         "label_region": "Capture region",
@@ -84,10 +92,18 @@ STRINGS: dict[str, dict[str, str]] = {
         "quality_balanced_hint": "30 fps · 8 Mbps — varsayılan.",
         "quality_high_hint": "60 fps · 16 Mbps — hızlı CPU ister.",
         "audio_check": "Sesi kaydet",
-        "audio_hint": "PulseAudio varsayılan kaynağını kullanır. "
-        "Sistem sesi için kaynak alanından bir .monitor cihazı seç "
+        "audio_mode": "Ses kaynağı",
+        "audio_mode_mic": "Mikrofon",
+        "audio_mode_desktop": "Masaüstü",
+        "audio_mode_both": "İkisi",
+        "audio_mode_mic_hint": "Mikrofonu varsayılan kaynaktan kaydet.",
+        "audio_mode_desktop_hint": "Sistem sesini bir .monitor cihazından kaydet.",
+        "audio_mode_both_hint": "Mikrofon ve sistem sesini tek parçada birleştir.",
+        "audio_hint": "Mikrofon PulseAudio varsayılan kaynağını kullanır. Masaüstü "
+        "otomatik bulunan .monitor cihazını kullanır — ya da açıkça yapıştır "
         "(`pactl list short sources`).",
-        "label_source_name": "PulseAudio kaynağı",
+        "label_source_name": "Mikrofon kaynağı",
+        "label_desktop_source": "Masaüstü kaynağı",
         "label_gain": "Kazanç",
         "gain_value": "%{pct}",
         "label_region": "Yakalama bölgesi",

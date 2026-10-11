@@ -3,17 +3,22 @@ title: Ses
 description: Yazılımsal kazançlı mikrofon ve sistem sesi kaydı.
 ---
 
-Penceredeki **Sesli kaydet (mikrofon)** kutusunu işaretleyin ya da kodla verin:
+Pencerede **Sesi kaydet** kutusunu işaretleyip kaynağı seçin — **Mikrofon**,
+**Masaüstü** (sistem sesi) ya da **İkisi** (tek parçada birleşir) — ya da
+kodla verin:
 
 ```python
 from castmane.config import AppConfig
 cfg = AppConfig(audio_enabled=True)  # varsayılan mikrofon
 # sistem sesi için:
-# cfg = AppConfig(audio_enabled=True,
-#     audio_source="alsa_output.pci-0000_00_1f.3.analog-stereo.monitor")
+# cfg = AppConfig(audio_enabled=True, audio_mode="desktop")
+# mikrofon + sistem sesi birlikte:
+# cfg = AppConfig(audio_enabled=True, audio_mode="both")
 ```
 
-Cihazları `pactl list short sources` ile listeleyin. Ses, aynı crash-safe
+Cihazları `pactl list short sources` ile listeleyin. "Masaüstü" ilk
+`.monitor` kaynağını otomatik bulur; yanlış sink seçilirse cihaz adını
+masaüstü-kaynağı alanına yapıştırın (ya da `audio_desktop_source`). Ses, aynı crash-safe
 dosyaya AAC olarak yazılır (Wayland'da `avenc_aac`, X11'de `aac`); `kill -9`
 ile ölen kayıt da MP4 remux da ses parçasını korur.
 

@@ -60,6 +60,8 @@ class FfmpegX11Recorder:
         self._stop_requested = threading.Event()
 
     def build_cmd(self, tmp: Path) -> list[str]:
+        from .audio import normalize_audio_mode, resolve_desktop_source, resolve_mic_source
+
         display = os.environ.get("DISPLAY", ":0")
         cmd = ["ffmpeg", "-y"]
         if self.cfg.window_id > 0:
@@ -82,20 +84,46 @@ class FfmpegX11Recorder:
             "-i", display,
         ]
         if self.cfg.audio_enabled:
-            # Via PulseAudio compatibility (provided by PipeWire):
-            # "auto"/"default"/"mic" -> default source, else the given device.
-            src = self.cfg.audio_source
-            if src in ("", "auto", "default", "mic"):
-                src = "default"
-            cmd += ["-f", "pulse", "-i", src]
+            # Audio mode selects the PulseAudio input(s):
+            # "mic" -> default source, "desktop" -> .monitor device,
+            # "both" -> two inputs mixed with amix.
+            mode = normalize_audio_mode(self.cfg.audio_mode)
+            if mode == "desktop":
+                src = resolve_desktop_source(self.cfg.audio_desktop_source)
+                cmd += ["-f", "pulse", "-i", src if src else "default"]
+            elif mode == "both":
+                mic = resolve_mic_source(self.cfg.audio_source)
+                desk = resolve_desktop_source(self.cfg.audio_desktop_source)
+                cmd += ["-f", "pulse", "-i", mic]
+                cmd += ["-f", "pulse", "-i", desk if desk else "default"]
+            else:
+                src = resolve_mic_source(self.cfg.audio_source)
+                cmd += ["-f", "pulse", "-i", src]
         cmd += [
             "-c:v", self.cfg.video_codec,
             "-pix_fmt", "yuv420p",
         ]
         if self.cfg.audio_enabled:
             cmd += ["-c:a", "aac", "-b:a", f"{self.cfg.audio_bitrate_kbps}k"]
+            mode = normalize_audio_mode(self.cfg.audio_mode)
+            if mode == "both":
+                # Mix mic (1:a) + desktop (2:a) down to one AAC track.
+                # Gain is applied per input so mic/desktop stay balanced.
+                if self.cfg.audio_gain != 1.0:
+                    filt = (
+                        f"[1:a]volume={self.cfg.audio_gain}[a0];"
+                        f"[2:a]volume={self.cfg.audio_gain}[a1];"
+                        "[a0][a1]amix=inputs=2:duration=longest:"
+                        "dropout_transition=0[aout]"
+                    )
+                else:
+                    filt = (
+                        "[1:a][2:a]amix=inputs=2:duration=longest:"
+                        "dropout_transition=0[aout]"
+                    )
+                cmd += ["-filter_complex", filt, "-map", "0:v", "-map", "[aout]"]
             # Software gain: no filter added at 1.0.
-            if self.cfg.audio_gain != 1.0:
+            elif self.cfg.audio_gain != 1.0:
                 cmd += ["-filter:a", f"volume={self.cfg.audio_gain}"]
         cmd += [
             "-movflags", self.cfg.movflags,

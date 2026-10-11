@@ -197,17 +197,23 @@ through the `.part` + atomic-rename pipeline.
 <details>
 <summary><strong>Audio</strong></summary>
 
-Tick **Record audio (mic)** in the window, or in code:
+Tick **Record audio** in the window and pick the source — **Mic**,
+**Desktop** (system sound), or **Both** (mixed into one track) — or in code:
 
 ```python
 from castmane.config import AppConfig
 cfg = AppConfig(audio_enabled=True)  # default mic
 # system sound instead:
-# cfg = AppConfig(audio_enabled=True,
-#     audio_source="alsa_output.pci-0000_00_1f.3.analog-stereo.monitor")
+# cfg = AppConfig(audio_enabled=True, audio_mode="desktop")
+# mic + system sound mixed:
+# cfg = AppConfig(audio_enabled=True, audio_mode="both")
+# explicit monitor device (skips auto-detection):
+# cfg = AppConfig(audio_enabled=True, audio_mode="desktop",
+#     audio_desktop_source="alsa_output.pci-0000_00_1f.3.analog-stereo.monitor")
 ```
 
-List devices with `pactl list short sources`. Audio is encoded as AAC
+List devices with `pactl list short sources`. "Desktop" auto-detects the
+first `.monitor` source. Audio is encoded as AAC
 (`avenc_aac` on Wayland, `aac` on X11) into the same crash-safe file, so a
 `kill -9` recording and its MP4 remux both keep the audio track.
 
@@ -238,7 +244,7 @@ across `xdg-desktop-portal` versions.
 
 - [x] Full-screen recording (Wayland + X11)
 - [x] Crash-safe output pipeline
-- [x] Audio capture (mic by default; system sound via `audio_source` monitor device)
+- [x] Audio capture (mic / desktop / both, selectable in the UI)
 - [x] Window / region selection
 - [x] Pause / resume, configurable quality presets
 - [x] One-file AppImage distribution

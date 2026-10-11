@@ -794,6 +794,20 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._row(self.audio_lbl, audio_wrap))
         layout.addWidget(self._hairline())
 
+        self.lbl_audio_mode = QLabel()
+        self.lbl_audio_mode.setObjectName("RowLabel")
+        self.audio_mode_seg = SegmentedControl(
+            [("", "mic"), ("", "desktop"), ("", "both")]
+        )
+        self.audio_mode_seg.set_current_data(self.cfg.audio_mode)
+        self.audio_mode_seg.changed.connect(self._on_audio_mode_changed)
+        self.hint_audio_mode = QLabel()
+        self.hint_audio_mode.setObjectName("Hint")
+        layout.addWidget(
+            self._row(self.lbl_audio_mode, self.audio_mode_seg, self.hint_audio_mode)
+        )
+        layout.addWidget(self._hairline())
+
         self.lbl_gain = QLabel()
         self.lbl_gain.setObjectName("RowLabel")
         gain_wrap = QWidget()
@@ -824,6 +838,16 @@ class MainWindow(QMainWindow):
         self.hint_audio.setObjectName("Hint")
         layout.addWidget(
             self._row(self.lbl_source_name, self.audio_source_edit, self.hint_audio)
+        )
+        layout.addWidget(self._hairline())
+
+        self.lbl_desktop_source_name = QLabel()
+        self.lbl_desktop_source_name.setObjectName("RowLabel")
+        self.audio_desktop_edit = QLineEdit(self.cfg.audio_desktop_source)
+        self.audio_desktop_edit.setPlaceholderText("auto")
+        self.audio_desktop_edit.textChanged.connect(self._on_audio_desktop_changed)
+        layout.addWidget(
+            self._row(self.lbl_desktop_source_name, self.audio_desktop_edit)
         )
         return page
 
@@ -962,8 +986,18 @@ class MainWindow(QMainWindow):
         self._refresh_quality_hint()
 
         self.audio_lbl.setText(_get("audio_check", lang))
+        self.lbl_audio_mode.setText(_get("audio_mode", lang))
+        self.audio_mode_seg.set_labels(
+            [
+                _get("audio_mode_mic", lang),
+                _get("audio_mode_desktop", lang),
+                _get("audio_mode_both", lang),
+            ]
+        )
+        self._refresh_audio_mode_hint()
         self.lbl_gain.setText(_get("label_gain", lang))
         self.lbl_source_name.setText(_get("label_source_name", lang))
+        self.lbl_desktop_source_name.setText(_get("label_desktop_source", lang))
         self.hint_audio.setText(_get("audio_hint", lang))
         self._refresh_gain_label()
 
@@ -1024,6 +1058,11 @@ class MainWindow(QMainWindow):
             self.t(f"quality_{self.quality_seg.current_data()}_hint")
         )
 
+    def _refresh_audio_mode_hint(self) -> None:
+        self.hint_audio_mode.setText(
+            self.t(f"audio_mode_{self.audio_mode_seg.current_data()}_hint")
+        )
+
     def _refresh_gain_label(self) -> None:
         self.gain_value.setText(self.t("gain_value").format(pct=self.gain_slider.value()))
 
@@ -1056,8 +1095,10 @@ class MainWindow(QMainWindow):
         self.quality_seg.set_enabled(enabled)
         self.lang_seg.set_enabled(enabled)
         self.audio_sw.setEnabled(enabled)
+        self.audio_mode_seg.set_enabled(enabled)
         self.gain_slider.setEnabled(enabled)
         self.audio_source_edit.setEnabled(enabled)
+        self.audio_desktop_edit.setEnabled(enabled)
         self._set_region_enabled(enabled)
 
     def toggle(self) -> None:
@@ -1150,6 +1191,26 @@ class MainWindow(QMainWindow):
             self.rec.cfg.audio_source = value
         except AttributeError:
             pass
+
+    def _on_audio_desktop_changed(self, text: str) -> None:
+        value = text.strip() or "auto"
+        self.cfg.audio_desktop_source = value
+        try:
+            self.rec.cfg.audio_desktop_source = value
+        except AttributeError:
+            pass
+
+    def _on_audio_mode_changed(self, mode: str) -> None:
+        if not mode:
+            return
+        from .audio import normalize_audio_mode
+
+        self.cfg.audio_mode = normalize_audio_mode(mode)
+        try:
+            self.rec.cfg.audio_mode = self.cfg.audio_mode
+        except AttributeError:
+            pass
+        self._refresh_audio_mode_hint()
 
     def _on_quality_changed(self, preset: str) -> None:
         if not preset:
