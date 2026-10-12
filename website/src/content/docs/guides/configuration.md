@@ -45,6 +45,10 @@ The **Settings** tab switches the UI language (`EN` / `TR`) and the theme
 
 ![CastMane settings — language and theme](../../../assets/screenshots/main-settings-light.png)
 
+Dark theme in action:
+
+![CastMane dark theme](../../../assets/screenshots/main-capture-dark.png)
+
 ```python
 from castmane.config import AppConfig
 cfg = AppConfig(language="tr", theme="dark")

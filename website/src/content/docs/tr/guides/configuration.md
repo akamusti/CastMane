@@ -46,6 +46,10 @@ dosyasında saklanır, yani yeniden başlatmalarda korunur:
 
 ![CastMane ayarlar — dil ve tema](../../../../assets/screenshots/main-settings-light.png)
 
+Koyu tema çalışırken:
+
+![CastMane koyu tema](../../../../assets/screenshots/main-capture-dark.png)
+
 ```python
 from castmane.config import AppConfig
 cfg = AppConfig(language="tr", theme="dark")
