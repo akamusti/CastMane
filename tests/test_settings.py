@@ -37,6 +37,13 @@ def test_get_theme_returns_copies():
     assert theme_mod.get_theme("dark")["CANVAS"] != "mutated"
 
 
+def test_surface_is_dark():
+    assert not theme_mod.surface_is_dark(theme_mod.get_theme("light"))
+    assert not theme_mod.surface_is_dark(theme_mod.get_theme("ocean"))
+    for name in ("dark", "midnight", "forest", "dracula", "nord"):
+        assert theme_mod.surface_is_dark(theme_mod.get_theme(name)), name
+
+
 def test_config_clamps_theme():
     assert AppConfig(theme="dark").theme == "dark"
     assert AppConfig(theme="nonsense").theme == theme_mod.DEFAULT_THEME

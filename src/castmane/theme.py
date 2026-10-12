@@ -390,3 +390,22 @@ def normalize_theme(name: str) -> str:
 def get_theme(name: str) -> dict[str, str]:
     """Return a mutable copy of the named theme's colour table."""
     return dict(THEMES.get(normalize_theme(name), _LIGHT))
+
+
+def _relative_luminance(hex_color: str) -> float:
+    """WCAG relative luminance of a `#RRGGBB` colour (0 = black)."""
+    hex_color = hex_color.strip().lstrip("#")
+    r, g, b = (int(hex_color[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
+
+    def _lin(c: float) -> float:
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+    return 0.2126 * _lin(r) + 0.7152 * _lin(g) + 0.0722 * _lin(b)
+
+
+def surface_is_dark(t: dict[str, str]) -> bool:
+    """True when the theme's surface is dark (ink artwork needs a tile)."""
+    try:
+        return _relative_luminance(t["SURFACE"]) < 0.4
+    except (KeyError, ValueError):
+        return False

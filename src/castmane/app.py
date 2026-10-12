@@ -383,6 +383,39 @@ def _repolish(widget: QWidget) -> None:
     widget.update()
 
 
+class MarkTile(QWidget):
+    """Header logo: bare ink mark on light themes, white tile on dark ones.
+
+    The bundled mark is dark ink on transparency, so it vanishes on
+    dark headers. The tile keeps the original asset untouched and
+    adapts via the live theme (no per-theme artwork to maintain).
+    """
+
+    TILE = 34
+    GLYPH = 24
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setFixedSize(self.TILE, self.TILE)
+        mark_file = mark_path()
+        self._pix = QPixmap(mark_file) if mark_file else QPixmap()
+
+    def paintEvent(self, _event) -> None:
+        p = QPainter(self)
+        p.setRenderHints(
+            QPainter.Antialiasing | QPainter.SmoothPixmapTransform
+        )
+        if theme_mod.surface_is_dark(_active_theme(self)):
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor("#FFFFFF"))
+            p.drawRoundedRect(self.rect(), 8, 8)
+        if not self._pix.isNull():
+            side = float(self.GLYPH)
+            x = (self.width() - side) / 2.0
+            y = (self.height() - side) / 2.0
+            p.drawPixmap(int(x), int(y), int(side), int(side), self._pix)
+
+
 class StatusDot(QWidget):
     """A 10px state dot. Colour carries the state; text stays plain."""
 
@@ -686,12 +719,8 @@ class MainWindow(QMainWindow):
         row.setContentsMargins(14, 0, 14, 0)
         row.setSpacing(10)
 
-        mark = QLabel()
-        mark.setFixedSize(28, 28)
-        mark.setScaledContents(True)
-        mark_file = mark_path()
-        if mark_file:
-            mark.setPixmap(QPixmap(mark_file))
+        mark = MarkTile()
+        self.header_mark = mark
         row.addWidget(mark)
 
         text = QVBoxLayout()
@@ -1380,6 +1409,7 @@ class MainWindow(QMainWindow):
         self._paint_folder_icon()
         for btn in self.tab_buttons:
             btn.update()
+        self.header_mark.update()
         self.audio_sw.update()
         self.cursor_sw.update()
         self.record_btn.update()
