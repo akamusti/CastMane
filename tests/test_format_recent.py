@@ -79,6 +79,7 @@ def test_open_button_works_without_explicit_selection(tmp_path, monkeypatch):
     import os
 
     os.environ["QT_QPA_PLATFORM"] = "offscreen"
+    from PySide6.QtGui import QDesktopServices
     from PySide6.QtWidgets import QApplication
 
     from castmane.app import MainWindow
@@ -89,12 +90,44 @@ def test_open_button_works_without_explicit_selection(tmp_path, monkeypatch):
     assert app is not None
     opened: list = []
     monkeypatch.setattr(
-        "subprocess.Popen", lambda *a, **k: opened.append(a[0]) or None
+        QDesktopServices, "openUrl", lambda url: opened.append(url) or True
     )
     w = MainWindow(AppConfig(output_dir=tmp_path))
     w._refresh_recent()
     w.recent_list.clearSelection()
     w.recent_list.setCurrentRow(-1)
     w._open_selected_recording()  # must fall back to the newest file
-    assert opened and opened[0][-1].endswith("take.mp4")
+    assert opened and opened[0].toLocalFile().endswith("take.mp4")
     w.close()
+
+
+def test_open_missing_file_shows_error(tmp_path, monkeypatch):
+    """A deleted recording reports failure instead of dying silently."""
+    import os
+
+    os.environ["QT_QPA_PLATFORM"] = "offscreen"
+    from PySide6.QtGui import QDesktopServices
+    from PySide6.QtWidgets import QApplication
+
+    from castmane.app import MainWindow
+    from castmane.config import AppConfig
+
+    gone = tmp_path / "gone.mp4"
+    gone.write_bytes(b"x")
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+    monkeypatch.setattr(QDesktopServices, "openUrl", lambda url: True)
+    w = MainWindow(AppConfig(output_dir=tmp_path))
+    w._refresh_recent()
+    gone.unlink()
+    w._open_selected_recording()
+    assert "gone.mp4" in w.status_lbl.text()
+    w.close()
+
+
+def test_format_file_size():
+    from castmane.recorder import format_file_size
+
+    assert format_file_size(100) == "0 KB"
+    assert format_file_size(1024 * 800) == "800 KB"
+    assert format_file_size(int(12.4 * 1024 * 1024)) == "12.4 MB"

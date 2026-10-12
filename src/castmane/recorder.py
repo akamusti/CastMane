@@ -63,6 +63,17 @@ def recover_part(tmp: Path) -> Path | None:
     return finalize_part(Path(tmp), final_name_for_part(Path(tmp)))
 
 
+def format_file_size(nbytes: int) -> str:
+    """Human size for the recent-recordings list: `800 KB`, `12.4 MB`."""
+    try:
+        kb = max(0, int(nbytes)) / 1024
+    except (TypeError, ValueError):
+        return "0 KB"
+    if kb < 1024:
+        return f"{kb:.0f} KB"
+    return f"{kb / 1024:.1f} MB"
+
+
 def list_recent_recordings(output_dir: Path, limit: int = 10) -> list[Path]:
     """Newest finished recordings first. Never raises; `.part`
     staging files are not recordings yet and are skipped."""

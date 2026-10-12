@@ -25,11 +25,13 @@ from PySide6.QtCore import (
     QSize,
     Qt,
     QTimer,
+    QUrl,
     QVariantAnimation,
     Signal,
 )
 from PySide6.QtGui import (
     QColor,
+    QDesktopServices,
     QFont,
     QFontMetrics,
     QIcon,
@@ -1881,7 +1883,7 @@ class MainWindow(QMainWindow):
     def _refresh_recent(self) -> None:
         from datetime import datetime
 
-        from .recorder import list_recent_recordings
+        from .recorder import format_file_size, list_recent_recordings
 
         self.recent_list.clear()
         for path in list_recent_recordings(self.cfg.output_dir):
@@ -1890,7 +1892,7 @@ class MainWindow(QMainWindow):
             except OSError:
                 continue
             when = datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M")
-            size = self.t("disk_free").format(mb=st.st_size / (1024 * 1024))
+            size = format_file_size(st.st_size)
             item = QListWidgetItem(f"{path.name}  ·  {size}  ·  {when}")
             item.setData(Qt.UserRole, str(path))
             self.recent_list.addItem(item)
@@ -1918,10 +1920,13 @@ class MainWindow(QMainWindow):
             self.status_lbl.setText(self.t("recent_none"))
             self._clear_error()
             return
-        try:
-            subprocess.Popen(["xdg-open", str(target)])
-        except Exception as e:  # noqa: BLE001
-            self._fail(self.t("error_prefix").format(err=e))
+        path = Path(target)
+        # QDesktopServices reports failure (unlike fire-and-forget
+        # xdg-open, whose errors died silently with the child).
+        if not path.is_file() or not QDesktopServices.openUrl(
+            QUrl.fromLocalFile(str(path))
+        ):
+            self._fail(self.t("recent_open_failed").format(err=path.name))
 
     def _on_mode_changed(self, mode: str) -> None:
         if not mode:
