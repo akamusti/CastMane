@@ -76,7 +76,7 @@ grep -rniE "api[_-]?key|secret|token|password|passwd|bearer" src tests --include
 - Varsayılan branch: `main`, remote: `origin`. Kullanıcı aksini söylemedikçe doğrudan `main`'e commit + push.
 - Push'tan önce `git status --short` ile `.env` / `*.part` / `*.AppImage` sızmadığını doğrula.
 
-## Versiyonlama
+## Versiyonlama (ilerideki tüm update'ler için geçerli, kalıcı kural)
 
 - Varsayılan patch artır: `0.8.0` → `0.8.1`, `0.8.2`, `0.8.3`... Küçük fix / küçük iyileştirme = patch.
 - `0.9.0` (minor) sadece gözle görülür yeni özellik / birikmiş özellik paketi için, kullanıcı onayı ile.
