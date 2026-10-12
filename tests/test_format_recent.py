@@ -72,3 +72,29 @@ def test_build_cmd_mkv_has_no_movflags(tmp_path):
     assert str(tmp_path / "take.mkv.part") in cmd
     rec_mp4 = FfmpegX11Recorder(AppConfig(output_dir=tmp_path))
     assert "-movflags" in rec_mp4.build_cmd(tmp_path / "take.mp4.part")
+
+
+def test_open_button_works_without_explicit_selection(tmp_path, monkeypatch):
+    """Regression: Aç/Open did nothing when no row was selected."""
+    import os
+
+    os.environ["QT_QPA_PLATFORM"] = "offscreen"
+    from PySide6.QtWidgets import QApplication
+
+    from castmane.app import MainWindow
+    from castmane.config import AppConfig
+
+    (tmp_path / "take.mp4").write_bytes(b"x" * 100)
+    app = QApplication.instance() or QApplication([])
+    assert app is not None
+    opened: list = []
+    monkeypatch.setattr(
+        "subprocess.Popen", lambda *a, **k: opened.append(a[0]) or None
+    )
+    w = MainWindow(AppConfig(output_dir=tmp_path))
+    w._refresh_recent()
+    w.recent_list.clearSelection()
+    w.recent_list.setCurrentRow(-1)
+    w._open_selected_recording()  # must fall back to the newest file
+    assert opened and opened[0][-1].endswith("take.mp4")
+    w.close()

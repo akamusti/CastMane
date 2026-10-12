@@ -1898,13 +1898,25 @@ class MainWindow(QMainWindow):
             empty = QListWidgetItem(self.t("recent_empty"))
             empty.setFlags(empty.flags() & ~Qt.ItemIsSelectable)
             self.recent_list.addItem(empty)
+        else:
+            # A row is always selected, so Aç/Open just works.
+            self.recent_list.setCurrentRow(0)
 
     def _open_selected_recording(self) -> None:
         item = self.recent_list.currentItem()
-        if item is None:
-            return
-        target = item.data(Qt.UserRole)
+        target = item.data(Qt.UserRole) if item is not None else None
         if not target:
+            # No selection (or the empty placeholder): fall back to the
+            # newest recording, if the list holds one.
+            for row in range(self.recent_list.count()):
+                candidate = self.recent_list.item(row).data(Qt.UserRole)
+                if candidate:
+                    target = candidate
+                    self.recent_list.setCurrentRow(row)
+                    break
+        if not target:
+            self.status_lbl.setText(self.t("recent_none"))
+            self._clear_error()
             return
         try:
             subprocess.Popen(["xdg-open", str(target)])
