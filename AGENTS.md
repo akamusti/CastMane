@@ -76,6 +76,14 @@ grep -rniE "api[_-]?key|secret|token|password|passwd|bearer" src tests --include
 - Varsayılan branch: `main`, remote: `origin`. Kullanıcı aksini söylemedikçe doğrudan `main`'e commit + push.
 - Push'tan önce `git status --short` ile `.env` / `*.part` / `*.AppImage` sızmadığını doğrula.
 
+## Versiyonlama
+
+- Varsayılan patch artır: `0.8.0` → `0.8.1`, `0.8.2`, `0.8.3`... Küçük fix / küçük iyileştirme = patch.
+- `0.9.0` (minor) sadece gözle görülür yeni özellik / birikmiş özellik paketi için, kullanıcı onayı ile.
+- `1.0.0` (major) sadece büyük kırıcı değişiklik / stable milestone için, açık kullanıcı onayı olmadan geçme.
+- Ajan kendiliğinden minor/major'a zıplamaz; emin değilse patch'te kalır ve kullanıcıya sorar.
+- Version bump'ta `pyproject.toml` + `src/castmane/__init__.py:4` senkron tutulur.
+
 ## İletişim
 
 - Kullanıcıyla hep Türkçe konuş. Kısa ve net ol.
