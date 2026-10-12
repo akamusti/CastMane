@@ -49,6 +49,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -68,7 +70,11 @@ from . import theme as theme_mod
 from .config import (
     AppConfig,
     AUTO_STOP_MAX_MIN,
+    BITRATE_MAX_KBPS,
+    BITRATE_MIN_KBPS,
     COUNTDOWN_CHOICES,
+    FPS_MAX,
+    FPS_MIN,
     MIN_FREE_MB,
     sanitize_prefix,
 )
@@ -665,6 +671,7 @@ class MainWindow(QMainWindow):
 
         self._is_wayland = session_is_wayland()
         self._retranslate()
+        self._refresh_custom_enabled()
         self._refresh_idle_status()
         # Offer to restore leftover `.part` files once the window is up.
         QTimer.singleShot(0, self._maybe_offer_recovery)
@@ -826,7 +833,7 @@ class MainWindow(QMainWindow):
         self.lbl_quality = QLabel()
         self.lbl_quality.setObjectName("RowLabel")
         self.quality_seg = SegmentedControl(
-            [("", "draft"), ("", "balanced"), ("", "high")]
+            [("", "draft"), ("", "balanced"), ("", "high"), ("", "custom")]
         )
         self.quality_seg.set_current_data(self.cfg.quality_preset)
         self.quality_seg.changed.connect(self._on_quality_changed)
@@ -835,6 +842,24 @@ class MainWindow(QMainWindow):
         layout.addWidget(
             self._row(self.lbl_quality, self.quality_seg, self.hint_quality)
         )
+
+        self.lbl_fps = QLabel()
+        self.lbl_fps.setObjectName("RowLabel")
+        self.fps_spin = QSpinBox()
+        self.fps_spin.setRange(FPS_MIN, FPS_MAX)
+        self.fps_spin.setValue(self.cfg.fps)
+        self.fps_spin.valueChanged.connect(self._on_fps_changed)
+        layout.addWidget(self._row(self.lbl_fps, self.fps_spin))
+
+        self.lbl_bitrate = QLabel()
+        self.lbl_bitrate.setObjectName("RowLabel")
+        self.br_spin = QSpinBox()
+        self.br_spin.setRange(BITRATE_MIN_KBPS, BITRATE_MAX_KBPS)
+        self.br_spin.setSingleStep(1000)
+        self.br_spin.setSuffix(" kbps")
+        self.br_spin.setValue(self.cfg.video_bitrate_kbps)
+        self.br_spin.valueChanged.connect(self._on_bitrate_changed)
+        layout.addWidget(self._row(self.lbl_bitrate, self.br_spin))
         layout.addWidget(self._hairline())
 
         self.lbl_cursor = QLabel()
@@ -1042,6 +1067,46 @@ class MainWindow(QMainWindow):
         layout.addWidget(
             self._row(self.lbl_prefix, self.prefix_edit, self.hint_prefix)
         )
+        layout.addWidget(self._hairline())
+
+        self.lbl_format = QLabel()
+        self.lbl_format.setObjectName("RowLabel")
+        self.format_seg = SegmentedControl([("MP4", "mp4"), ("MKV", "mkv")])
+        self.format_seg.set_current_data(self.cfg.output_format)
+        self.format_seg.changed.connect(self._on_format_changed)
+        self.hint_format = QLabel()
+        self.hint_format.setObjectName("Hint")
+        layout.addWidget(
+            self._row(self.lbl_format, self.format_seg, self.hint_format)
+        )
+        layout.addWidget(self._hairline())
+
+        self.lbl_recent = QLabel()
+        self.lbl_recent.setObjectName("RowLabel")
+        recent_wrap = QWidget()
+        recent_col = QVBoxLayout(recent_wrap)
+        recent_col.setContentsMargins(0, 0, 0, 0)
+        recent_col.setSpacing(8)
+        self.recent_list = QListWidget()
+        self.recent_list.setMaximumHeight(132)
+        self.recent_list.itemDoubleClicked.connect(
+            lambda _item: self._open_selected_recording()
+        )
+        recent_col.addWidget(self.recent_list)
+        recent_btns = QHBoxLayout()
+        recent_btns.setContentsMargins(0, 0, 0, 0)
+        recent_btns.setSpacing(8)
+        self.recent_open_btn = QPushButton()
+        self.recent_open_btn.setCursor(Qt.PointingHandCursor)
+        self.recent_open_btn.clicked.connect(self._open_selected_recording)
+        recent_btns.addWidget(self.recent_open_btn)
+        self.recent_refresh_btn = QPushButton()
+        self.recent_refresh_btn.setCursor(Qt.PointingHandCursor)
+        self.recent_refresh_btn.clicked.connect(self._refresh_recent)
+        recent_btns.addWidget(self.recent_refresh_btn)
+        recent_btns.addStretch(1)
+        recent_col.addLayout(recent_btns)
+        layout.addWidget(self._row(self.lbl_recent, recent_wrap))
         return page
 
     def _build_settings_page(self) -> QWidget:
@@ -1171,9 +1236,12 @@ class MainWindow(QMainWindow):
                 _get("quality_draft", lang),
                 _get("quality_balanced", lang),
                 _get("quality_high", lang),
+                _get("quality_custom", lang),
             ]
         )
         self._refresh_quality_hint()
+        self.lbl_fps.setText(_get("label_fps", lang))
+        self.lbl_bitrate.setText(_get("label_bitrate", lang))
 
         self.audio_lbl.setText(_get("audio_check", lang))
         self.lbl_audio_mode.setText(_get("audio_mode", lang))
@@ -1211,7 +1279,13 @@ class MainWindow(QMainWindow):
         self.lbl_disk.setText(_get("label_output_folder", lang))
         self.lbl_prefix.setText(_get("label_prefix", lang))
         self.hint_prefix.setText(_get("prefix_hint", lang))
+        self.lbl_format.setText(_get("label_format", lang))
+        self.hint_format.setText(_get("format_hint", lang))
+        self.lbl_recent.setText(_get("label_recent", lang))
+        self.recent_open_btn.setText(_get("recent_open", lang))
+        self.recent_refresh_btn.setText(_get("recent_refresh", lang))
         self._refresh_disk_label()
+        self._refresh_recent()
 
         self.lbl_language.setText(_get("label_language", lang))
         self.hint_language.setText(_get("language_hint", lang))
@@ -1431,6 +1505,7 @@ class MainWindow(QMainWindow):
     def _set_inputs_enabled(self, enabled: bool) -> None:
         self.mode_seg.set_enabled(enabled)
         self.quality_seg.set_enabled(enabled)
+        self.format_seg.set_enabled(enabled)
         self.cursor_sw.setEnabled(enabled)
         self.countdown_seg.set_enabled(enabled)
         self.autostop_spin.setEnabled(enabled)
@@ -1444,6 +1519,11 @@ class MainWindow(QMainWindow):
         self.output_edit.setEnabled(enabled)
         self.browse_btn.setEnabled(enabled)
         self.prefix_edit.setEnabled(enabled)
+        if enabled:
+            self._refresh_custom_enabled()
+        else:
+            self.fps_spin.setEnabled(False)
+            self.br_spin.setEnabled(False)
         self._set_region_enabled(enabled)
 
     def toggle(self) -> None:
@@ -1530,6 +1610,7 @@ class MainWindow(QMainWindow):
         if out:
             self._clear_error()
             self.status_lbl.setText(self.t("saved").format(out=out))
+            self._refresh_recent()
             self._notify(
                 self.t("notify_autostop")
                 if reason == "autostop"
@@ -1704,7 +1785,101 @@ class MainWindow(QMainWindow):
             self.rec.cfg.apply_quality_preset(preset)
         except (AttributeError, ValueError):
             pass
+        # Named presets own fps/bitrate: show their values without
+        # tripping the custom switch.
+        self.fps_spin.blockSignals(True)
+        self.br_spin.blockSignals(True)
+        self.fps_spin.setValue(self.cfg.fps)
+        self.br_spin.setValue(self.cfg.video_bitrate_kbps)
+        self.fps_spin.blockSignals(False)
+        self.br_spin.blockSignals(False)
+        self._refresh_custom_enabled()
         self._refresh_quality_hint()
+
+    def _switch_to_custom(self) -> None:
+        """Editing fps/bitrate by hand means the Custom preset."""
+        if self.quality_seg.current_data() == "custom":
+            return
+        self.cfg.apply_quality_preset("custom")
+        try:
+            self.rec.cfg.apply_quality_preset("custom")
+        except (AttributeError, ValueError):
+            pass
+        self.quality_seg.set_current_data("custom")
+        self._refresh_custom_enabled()
+        self._refresh_quality_hint()
+
+    def _refresh_custom_enabled(self) -> None:
+        custom = self.quality_seg.current_data() == "custom"
+        self.fps_spin.setEnabled(custom)
+        self.br_spin.setEnabled(custom)
+
+    def _on_fps_changed(self, value: int) -> None:
+        from .config import clamp_fps
+
+        self.cfg.fps = clamp_fps(value)
+        try:
+            self.rec.cfg.fps = self.cfg.fps
+        except AttributeError:
+            pass
+        self._switch_to_custom()
+        self.cfg.save()
+
+    def _on_bitrate_changed(self, value: int) -> None:
+        from .config import clamp_bitrate_kbps
+
+        self.cfg.video_bitrate_kbps = clamp_bitrate_kbps(value)
+        try:
+            self.rec.cfg.video_bitrate_kbps = self.cfg.video_bitrate_kbps
+        except AttributeError:
+            pass
+        self._switch_to_custom()
+        self.cfg.save()
+
+    def _on_format_changed(self, fmt: str) -> None:
+        if not fmt:
+            return
+        from .config import normalize_format
+
+        self.cfg.output_format = normalize_format(fmt)
+        try:
+            self.rec.cfg.output_format = self.cfg.output_format
+        except AttributeError:
+            pass
+        self.cfg.save()
+
+    def _refresh_recent(self) -> None:
+        from datetime import datetime
+
+        from .recorder import list_recent_recordings
+
+        self.recent_list.clear()
+        for path in list_recent_recordings(self.cfg.output_dir):
+            try:
+                st = path.stat()
+            except OSError:
+                continue
+            when = datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M")
+            size = self.t("disk_free").format(mb=st.st_size / (1024 * 1024))
+            item = QListWidgetItem(f"{path.name}  ·  {size}  ·  {when}")
+            item.setData(Qt.UserRole, str(path))
+            self.recent_list.addItem(item)
+        if self.recent_list.count() == 0:
+            empty = QListWidgetItem(self.t("recent_empty"))
+            empty.setFlags(empty.flags() & ~Qt.ItemIsSelectable)
+            self.recent_list.addItem(empty)
+
+    def _open_selected_recording(self) -> None:
+        item = self.recent_list.currentItem()
+        if item is None:
+            return
+        target = item.data(Qt.UserRole)
+        if not target:
+            return
+        try:
+            subprocess.Popen(["xdg-open", str(target)])
+        except Exception as e:  # noqa: BLE001
+            self._fail(self.t("error_prefix").format(err=e))
 
     def _on_mode_changed(self, mode: str) -> None:
         if not mode:
@@ -1762,6 +1937,7 @@ class MainWindow(QMainWindow):
             pass
         self._refresh_outcome()
         self._refresh_disk_label()
+        self._refresh_recent()
         self.cfg.save()
 
     def _on_prefix_changed(self, text: str) -> None:

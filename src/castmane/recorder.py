@@ -63,6 +63,23 @@ def recover_part(tmp: Path) -> Path | None:
     return finalize_part(Path(tmp), final_name_for_part(Path(tmp)))
 
 
+def list_recent_recordings(output_dir: Path, limit: int = 10) -> list[Path]:
+    """Newest finished recordings first. Never raises; `.part`
+    staging files are not recordings yet and are skipped."""
+    try:
+        target = Path(output_dir)
+        if not target.is_dir():
+            return []
+        files = [
+            p for p in (*target.glob("*.mp4"), *target.glob("*.mkv"))
+            if p.is_file() and not p.name.endswith(".part")
+        ]
+        files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        return files[:max(1, limit)]
+    except OSError:
+        return []
+
+
 @dataclass
 class RecordingState:
     active: bool = False
@@ -91,6 +108,7 @@ class FfmpegX11Recorder:
 
     def build_cmd(self, tmp: Path) -> list[str]:
         from .audio import normalize_audio_mode, resolve_desktop_source, resolve_mic_source
+        from .config import normalize_format
 
         display = os.environ.get("DISPLAY", ":0")
         cmd = ["ffmpeg", "-y"]
@@ -157,16 +175,21 @@ class FfmpegX11Recorder:
             # Software gain: no filter added at 1.0.
             elif self.cfg.audio_gain != 1.0:
                 cmd += ["-filter:a", f"volume={self.cfg.audio_gain}"]
-        cmd += [
-            "-movflags", self.cfg.movflags,
-            str(tmp),
-        ]
+        if normalize_format(self.cfg.output_format) == "mkv":
+            # Matroska needs no movflags: it is streamable by design,
+            # so a killed recording stays playable as-is.
+            cmd += [str(tmp)]
+        else:
+            cmd += [
+                "-movflags", self.cfg.movflags,
+                str(tmp),
+            ]
         return cmd
 
     def start(self) -> Path:
         if self.state.active:
             raise RuntimeError("recording already active")
-        final = self.cfg.next_output_path(".mp4")
+        final = self.cfg.next_output_path()
         tmp = self.cfg.tmp_path_for(final)
         cmd = self.build_cmd(tmp)
         self._proc = subprocess.Popen(

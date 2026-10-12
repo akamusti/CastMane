@@ -196,9 +196,9 @@ class PortalRecorder:
     def start(self) -> Path:
         if self.state.active:
             raise RuntimeError("recording already active")
-        final = self.cfg.next_output_path(".mp4")
+        final = self.cfg.next_output_path()
         # Recording goes to MKV (mp4mux dies on the first frame without PTS),
-        # remuxed to MP4 on stop. Intermediate: X.mkv.part
+        # remuxed to MP4 on stop when the target is MP4. Intermediate: X.mkv.part
         tmp_mkv = final.with_suffix(".mkv.part")
         mkv_final = final.with_suffix(".mkv")
 
@@ -262,6 +262,10 @@ class PortalRecorder:
         if mkv is None:
             self.state.last_error = "output file was not created"
             return None
+        if self.state.final_path.suffix == ".mkv":
+            # MKV target: the staging file already is the final
+            # container, no remux needed.
+            return mkv
         # Fast lossless remux: MKV -> MP4. If it fails, hand over the
         # healthy MKV (never lose the user's footage).
         if self._remux(mkv, self.state.final_path):

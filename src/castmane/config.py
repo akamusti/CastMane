@@ -21,6 +21,13 @@ COUNTDOWN_CHOICES = (0, 3, 5, 10)
 #: Auto-stop limit (minutes). 0 = off, max 3 hours.
 AUTO_STOP_MAX_MIN = 180
 
+#: Output containers offered in the UI.
+SUPPORTED_FORMATS = ("mp4", "mkv")
+
+#: Bounds for the Custom quality preset.
+FPS_MIN, FPS_MAX = 1, 120
+BITRATE_MIN_KBPS, BITRATE_MAX_KBPS = 500, 50000
+
 #: Abort recording start below this free space so we never write a
 #: truncated file without telling the user first.
 MIN_FREE_MB = 100
@@ -47,6 +54,25 @@ def normalize_auto_stop(value: int) -> int:
     except (TypeError, ValueError):
         return 0
     return max(0, min(AUTO_STOP_MAX_MIN, ivalue))
+
+
+def normalize_format(value: str) -> str:
+    fmt = (value or "").strip().lower().lstrip(".")
+    return fmt if fmt in SUPPORTED_FORMATS else "mp4"
+
+
+def clamp_fps(value: int) -> int:
+    try:
+        return max(FPS_MIN, min(FPS_MAX, int(value)))
+    except (TypeError, ValueError):
+        return 30
+
+
+def clamp_bitrate_kbps(value: int) -> int:
+    try:
+        return max(BITRATE_MIN_KBPS, min(BITRATE_MAX_KBPS, int(value)))
+    except (TypeError, ValueError):
+        return 8000
 
 
 @dataclass
@@ -87,8 +113,12 @@ class AppConfig:
     # below 5.0 (clipping/distortion risk).
     audio_gain: float = 1.0
     # Quality preset: "draft" (light/fast), "balanced" (default),
-    # "high" (heavy). fps affects X11 capture, bitrate affects both backends.
+    # "high" (heavy), "custom" (fps/bitrate below are user-set).
+    # fps affects X11 capture, bitrate affects both backends.
     quality_preset: str = "balanced"
+    # Output container: "mp4" (universal, portal remuxes MKV->MP4 on
+    # stop) or "mkv" (no remux, ready faster).
+    output_format: str = "mp4"
     # Output naming: sanitized via sanitize_prefix() ("my video!" -> "my_video").
     filename_prefix: str = "castmane"
     # Mouse cursor in the footage (X11 draw_mouse + portal cursor_mode).
@@ -105,6 +135,9 @@ class AppConfig:
         self.filename_prefix = sanitize_prefix(self.filename_prefix)
         self.countdown_s = normalize_countdown(self.countdown_s)
         self.auto_stop_min = normalize_auto_stop(self.auto_stop_min)
+        self.output_format = normalize_format(self.output_format)
+        self.fps = clamp_fps(self.fps)
+        self.video_bitrate_kbps = clamp_bitrate_kbps(self.video_bitrate_kbps)
 
     def apply_quality_preset(self, name: str) -> None:
         presets = {
@@ -112,6 +145,10 @@ class AppConfig:
             "balanced": {"fps": 30, "video_bitrate_kbps": 8000},
             "high": {"fps": 60, "video_bitrate_kbps": 16000},
         }
+        if name == "custom":
+            # Keep the user's fps/bitrate, just remember the choice.
+            self.quality_preset = "custom"
+            return
         if name not in presets:
             raise ValueError(f"unknown quality preset: {name}")
         self.quality_preset = name
@@ -138,10 +175,11 @@ class AppConfig:
             return 3  # 1 | 2: monitor or window
         return 1  # fullscreen default
 
-    def next_output_path(self, suffix: str = ".mp4") -> Path:
+    def next_output_path(self, suffix: str | None = None) -> Path:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        return self.output_dir / f"{sanitize_prefix(self.filename_prefix)}_{stamp}{suffix}"
+        ext = suffix if suffix else f".{normalize_format(self.output_format)}"
+        return self.output_dir / f"{sanitize_prefix(self.filename_prefix)}_{stamp}{ext}"
 
     def output_dir_free_mb(self) -> float | None:
         """Free space in the output folder (MiB), None when unknown."""
@@ -162,6 +200,7 @@ class AppConfig:
     def to_dict(self) -> dict:
         return {
             "output_dir": str(self.output_dir),
+            "output_format": self.output_format,
             "filename_prefix": self.filename_prefix,
             "show_cursor": self.show_cursor,
             "countdown_s": self.countdown_s,
@@ -169,6 +208,8 @@ class AppConfig:
             "language": self.language,
             "theme": self.theme,
             "quality_preset": self.quality_preset,
+            "fps": self.fps,
+            "video_bitrate_kbps": self.video_bitrate_kbps,
             "capture_mode": self.capture_mode,
             "region_x": self.region_x,
             "region_y": self.region_y,
@@ -200,6 +241,7 @@ class AppConfig:
         try:
             cfg = cls(
                 output_dir=Path(data.get("output_dir", Path.home() / "Videos" / "CastMane")),
+                output_format=normalize_format(data.get("output_format", "mp4")),
                 filename_prefix=sanitize_prefix(data.get("filename_prefix", "castmane")),
                 show_cursor=bool(data.get("show_cursor", True)),
                 countdown_s=normalize_countdown(data.get("countdown_s", 0)),
@@ -216,9 +258,12 @@ class AppConfig:
                 audio_source=data.get("audio_source", "auto"),
                 audio_desktop_source=data.get("audio_desktop_source", "auto"),
                 audio_gain=float(data.get("audio_gain", 1.0)),
+                fps=clamp_fps(data.get("fps", 30)),
+                video_bitrate_kbps=clamp_bitrate_kbps(data.get("video_bitrate_kbps", 8000)),
             )
             # Re-apply the stored preset so fps/bitrate match the preset
-            # instead of the dataclass defaults.
+            # instead of the dataclass defaults. "custom" keeps the
+            # stored fps/bitrate above.
             try:
                 cfg.apply_quality_preset(data.get("quality_preset", "balanced"))
             except ValueError:

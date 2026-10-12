@@ -56,10 +56,10 @@ ve tüm PyPI bağımlılıklarını içinde getirir.
 | X11 yedeği | `ffmpeg` (`x11grab`) backend'i, otomatik seçilir |
 | Crash-safe | Parçalı kapsayıcı, `.part` staging, atomik rename, nazik kapatma, encoder izcisi |
 | Sade arayüz | Kayıt / Durdur / Duraklat, geçen süre, durum satırı |
-| Duraklatma ve kalite | Çekimin ortasında encoder'ı dondurun; Taslak / Dengeli / Yüksek ön ayarları |
+| Duraklatma ve kalite | Çekimin ortasında encoder'ı dondurun; Taslak / Dengeli / Yüksek / Özel ön ayarları |
 | Kaynak seçimi | Tam ekran, tek pencere ya da her seferinde sor |
 | Ses | Yazılımsal kazançlı, isteğe bağlı mikrofon veya sistem sesi kaydı (AAC) |
-| Çıktı | `~/Videos/CastMane` altında zaman damgalı `castmane_YYYY-MM-DD_HH-MM-SS.mp4` dosyaları |
+| Çıktı | `~/Videos/CastMane` altında zaman damgalı `castmane_YYYY-MM-DD_HH-MM-SS.mp4` ya da `.mkv` dosyaları, son kayıtlar listesi |
 
 ## Gereksinimler
 
@@ -174,7 +174,7 @@ trailer her zaman temiz yazılır.
 ```python
 from castmane.config import AppConfig
 cfg = AppConfig()
-cfg.apply_quality_preset("high")  # "draft" | "balanced" | "high"
+cfg.apply_quality_preset("high")  # "draft" | "balanced" | "high" | "custom"
 ```
 
 | Ön ayar | fps | Bit hızı |
@@ -182,6 +182,7 @@ cfg.apply_quality_preset("high")  # "draft" | "balanced" | "high"
 | Taslak | 24 | 4 Mbps |
 | Dengeli | 30 | 8 Mbps |
 | Yüksek | 60 | 16 Mbps |
+| Özel | senin FPS'in (1–120) | senin bit hızın (0,5–50 Mbps) |
 
 </details>
 
