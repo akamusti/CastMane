@@ -130,9 +130,10 @@ The interface is English with the light theme by default. Open the
 both apply instantly and are remembered on next launch.
 In code: `AppConfig(language="tr", theme="dark")`.
 
-**Recovering an interrupted recording:** look for the `*.mkv.part` (Wayland)
-or `*.mp4.part` (X11) file in the same folder — it plays as-is. Just rename
-it (on Wayland, optionally remux to MP4 yourself:
+**Recovering an interrupted recording:** on the next launch the app
+offers to **Restore** leftover `*.mkv.part` (Wayland) or `*.mp4.part`
+(X11) files next to your finished videos — or **Delete** / **Later**.
+Restored files play as-is (on Wayland, optionally remux to MP4 yourself:
 `ffmpeg -i file.mkv.part -c copy file.mp4`).
 
 ## Crash-safety

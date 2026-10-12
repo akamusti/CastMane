@@ -33,6 +33,36 @@ def finalize_part(tmp: Path, final: Path) -> Path | None:
     return None
 
 
+def final_name_for_part(tmp: Path) -> Path:
+    """Strip the trailing `.part` suffix: `take.mp4.part` -> `take.mp4`."""
+    name = tmp.name
+    if name.endswith(".part"):
+        return tmp.with_name(name[: -len(".part")])
+    return tmp.with_suffix("")
+
+
+def find_stale_parts(output_dir: Path) -> list[Path]:
+    """List leftover `.part` files from interrupted recordings.
+
+    Never raises: an unreadable output dir means "nothing to recover".
+    """
+    try:
+        target = Path(output_dir)
+        if not target.is_dir():
+            return []
+        return sorted(p for p in target.glob("*.part") if p.is_file())
+    except OSError:
+        return []
+
+
+def recover_part(tmp: Path) -> Path | None:
+    """Promote one leftover `.part` via the crash-safe atomic rename.
+
+    Empty files are not promoted (same rule as `finalize_part`).
+    """
+    return finalize_part(Path(tmp), final_name_for_part(Path(tmp)))
+
+
 @dataclass
 class RecordingState:
     active: bool = False

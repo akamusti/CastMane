@@ -14,6 +14,7 @@ is getting away from.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -50,6 +51,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QMenu,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -664,6 +666,8 @@ class MainWindow(QMainWindow):
         self._is_wayland = session_is_wayland()
         self._retranslate()
         self._refresh_idle_status()
+        # Offer to restore leftover `.part` files once the window is up.
+        QTimer.singleShot(0, self._maybe_offer_recovery)
 
     # --- Construction ---
 
@@ -1575,6 +1579,73 @@ class MainWindow(QMainWindow):
             subprocess.Popen(["xdg-open", str(path)])
         except Exception as e:  # noqa: BLE001
             self._fail(self.t("error_prefix").format(err=e))
+
+    # --- Interrupted-recording recovery ---
+
+    def _maybe_offer_recovery(self) -> None:
+        """Ask about leftover `.part` files from a crash, if any.
+
+        Skipped when a recording is already active and when
+        `CASTMANE_NO_RECOVERY` is set (tests / headless runs).
+        """
+        if self.rec.state.active or os.environ.get("CASTMANE_NO_RECOVERY"):
+            return
+        from .recorder import find_stale_parts
+
+        parts = find_stale_parts(self.cfg.output_dir)
+        if not parts:
+            return
+        self._offer_recovery(parts)
+
+    def _offer_recovery(self, parts: list[Path]) -> str:
+        """Show the Restore / Delete / Later dialog. Returns the action."""
+        box = QMessageBox(self)
+        box.setWindowTitle(self.t("recovery_title"))
+        box.setText(self.t("recovery_text").format(n=len(parts)))
+        box.setInformativeText("\n".join(p.name for p in parts[:8]))
+        restore_btn = box.addButton(
+            self.t("recovery_restore"), QMessageBox.AcceptRole
+        )
+        discard_btn = box.addButton(
+            self.t("recovery_discard"), QMessageBox.DestructiveRole
+        )
+        box.addButton(self.t("recovery_later"), QMessageBox.RejectRole)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked == restore_btn:
+            return self._restore_stale_parts(parts)
+        if clicked == discard_btn:
+            return self._discard_stale_parts(parts)
+        return "later"
+
+    def _restore_stale_parts(self, parts: list[Path]) -> str:
+        from .recorder import recover_part
+
+        restored = [r.name for p in parts if (r := recover_part(p)) is not None]
+        if restored:
+            msg = self.t("recovery_restored").format(names=", ".join(restored))
+            self.status_lbl.setText(msg)
+            self._clear_error()
+            self._notify(msg)
+            return "restored"
+        msg = self.t("recovery_failed").format(
+            names=", ".join(p.name for p in parts)
+        )
+        self._fail(msg)
+        return "failed"
+
+    def _discard_stale_parts(self, parts: list[Path]) -> str:
+        count = 0
+        for p in parts:
+            try:
+                Path(p).unlink(missing_ok=True)
+                count += 1
+            except OSError:
+                pass
+        msg = self.t("recovery_deleted").format(n=count)
+        self.status_lbl.setText(msg)
+        self._clear_error()
+        return "deleted"
 
     # --- Setting handlers ---
 

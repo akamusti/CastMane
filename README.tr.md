@@ -130,10 +130,11 @@ ya da tema (**Açık** / **Koyu** / **Okyanus** / **Gece** / **Orman** /
 ikisi de anında uygulanır ve bir sonraki açılışta hatırlanır.
 Kod ile: `AppConfig(language="tr", theme="dark")`.
 
-**Yarıda kesilen kaydı kurtarma:** aynı klasördeki `*.mkv.part` (Wayland)
-ya da `*.mp4.part` (X11) dosyasına bakın — aynen oynatılır. Yeniden
-adlandırmanız yeterli (Wayland'da isterseniz MP4'e kendiniz çevirin:
-`ffmpeg -i dosya.mkv.part -c copy dosya.mp4`).
+**Yarıda kesilen kaydı kurtarma:** bir sonraki açılışta uygulama,
+yarım kalmış `*.mkv.part` (Wayland) ya da `*.mp4.part` (X11) dosyalarını
+bitmiş videoların yanına **Kurtar**mayı önerir — ya da **Sil** / **Sonra**.
+Kurtarılan dosyalar aynen oynatılır (Wayland'da isterseniz MP4'e kendiniz
+çevirin: `ffmpeg -i dosya.mkv.part -c copy dosya.mp4`).
 
 ## Crash-güvenliği
 
