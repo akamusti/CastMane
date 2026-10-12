@@ -5,6 +5,8 @@ description: CastMane ile kayıt, duraklatma, durdurma ve kurtarma.
 
 ## Kayıt
 
+![CastMane ana pencere — Yakalama ayarları](../../../../assets/screenshots/main-capture-tr.png)
+
 1. **Uygulamayı başlatın.** Durum satırı aktif backend'i gösterir, örn.
    `Hazır [portal (Wayland)]`.
 2. **Kaynak seçin:** Tam Ekran, Pencere ya da Sor / Bölge Seç.
@@ -12,6 +14,11 @@ description: CastMane ile kayıt, duraklatma, durdurma ve kurtarma.
    *Sor* sürükle-seç çerçevesi açar.
 3. **Kayda basın.** Wayland'da sistemin ekran paylaşım diyafonu açılır —
    monitörü ya da pencereyi seçip onaylayın (180 saniye süreniz var).
+
+Kayıt sırasında süre kırmızıya döner ve düğme Durdur olur:
+
+![CastMane kayıt sırasında — süre ve kırmızı Durdur düğmesi](../../../../assets/screenshots/main-recording-light.png)
+
 4. **Durdur'a basın.** Bitmiş dosya `~/Videos/CastMane` altında
    `castmane_YYYY-MM-DD_HH-MM-SS.mp4` olarak durur.
 

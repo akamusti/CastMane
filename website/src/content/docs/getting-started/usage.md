@@ -5,6 +5,8 @@ description: Record, pause, stop, and recover recordings with CastMane.
 
 ## Recording
 
+![CastMane main window — Capture settings](../../../assets/screenshots/main-capture-light.png)
+
 1. **Start the app.** The status line shows the active backend, e.g.
    `Ready [portal (Wayland)]`.
 2. **Pick a source:** Full-screen, Window, or Ask / Select region.
@@ -12,6 +14,11 @@ description: Record, pause, stop, and recover recordings with CastMane.
    opens a drag-to-select frame.
 3. **Press Record.** On Wayland the system screen-share dialog appears —
    pick the monitor or window and confirm (you have 180 seconds).
+
+While recording the timer turns red and the button becomes Stop:
+
+![CastMane while recording — timer and red Stop button](../../../assets/screenshots/main-recording-light.png)
+
 4. **Press Stop.** The finished file lands in `~/Videos/CastMane` as
    `castmane_YYYY-MM-DD_HH-MM-SS.mp4`.
 

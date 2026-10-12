@@ -43,6 +43,8 @@ The **Settings** tab switches the UI language (`EN` / `TR`) and the theme
 (`Light` / `Dark`). Both apply instantly and are stored in
 `~/.config/castmane/settings.json`, so they survive restarts:
 
+![CastMane settings — language and theme](../../../assets/screenshots/main-settings-light.png)
+
 ```python
 from castmane.config import AppConfig
 cfg = AppConfig(language="tr", theme="dark")

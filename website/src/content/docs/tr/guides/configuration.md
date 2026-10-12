@@ -44,6 +44,8 @@ atomik rename hattından geçer.
 değiştirir. İkisi de anında uygulanır ve `~/.config/castmane/settings.json`
 dosyasında saklanır, yani yeniden başlatmalarda korunur:
 
+![CastMane ayarlar — dil ve tema](../../../../assets/screenshots/main-settings-light.png)
+
 ```python
 from castmane.config import AppConfig
 cfg = AppConfig(language="tr", theme="dark")

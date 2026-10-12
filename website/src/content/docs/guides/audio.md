@@ -6,6 +6,8 @@ description: Microphone and system-sound capture with software gain.
 Tick **Record audio** in the window and pick the source — **Mic**,
 **Desktop** (system sound), or **Both** (mixed into one track) — or in code:
 
+![CastMane audio settings](../../../assets/screenshots/main-audio-light.png)
+
 ```python
 from castmane.config import AppConfig
 cfg = AppConfig(audio_enabled=True)  # default mic

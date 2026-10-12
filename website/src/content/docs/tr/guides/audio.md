@@ -7,6 +7,8 @@ Pencerede **Sesi kaydet** kutusunu işaretleyip kaynağı seçin — **Mikrofon*
 **Masaüstü** (sistem sesi) ya da **İkisi** (tek parçada birleşir) — ya da
 kodla verin:
 
+![CastMane ses ayarları](../../../../assets/screenshots/main-audio-light.png)
+
 ```python
 from castmane.config import AppConfig
 cfg = AppConfig(audio_enabled=True)  # varsayılan mikrofon

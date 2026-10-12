@@ -40,6 +40,14 @@ chmod +x CastMane-*.AppImage
 Hepsi bu — Python, venv ya da pip kurulumu gerekmez. AppImage Python, Qt
 ve tüm PyPI bağımlılıklarını içinde getirir.
 
+## Ekran görüntüleri
+
+![CastMane ana pencere — Yakalama ayarları](docs/screenshots/main-capture-tr.png)
+
+| Kayıt anı | Koyu tema | Ses ayarları |
+|---|---|---|
+| ![CastMane kayıt sırasında — süre ve kırmızı Durdur düğmesi](docs/screenshots/main-recording-light.png) | ![CastMane koyu tema](docs/screenshots/main-capture-dark.png) | ![CastMane ses ayarları](docs/screenshots/main-audio-light.png) |
+
 ## Özellikler
 
 | Alan | Yetenek |

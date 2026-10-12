@@ -40,6 +40,14 @@ chmod +x CastMane-*.AppImage
 That's it — no Python, venv, or pip setup. The AppImage bundles Python, Qt,
 and all PyPI dependencies.
 
+## Screenshots
+
+![CastMane main window — Capture settings](docs/screenshots/main-capture-light.png)
+
+| Recording | Dark theme | Audio settings |
+|---|---|---|
+| ![CastMane while recording — timer and red Stop button](docs/screenshots/main-recording-light.png) | ![CastMane dark theme](docs/screenshots/main-capture-dark.png) | ![CastMane audio settings](docs/screenshots/main-audio-light.png) |
+
 ## Features
 
 | Area | Capability |
