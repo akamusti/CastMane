@@ -81,7 +81,7 @@ from .config import (
     sanitize_prefix,
 )
 from .i18n import SUPPORTED_LANGUAGES, get as _get, normalize
-from .icons import paint_icon
+from .icons import paint_icon, tray_icon
 from .theme import (
     FONT_MONO,
     FONT_UI,
@@ -1449,9 +1449,10 @@ class MainWindow(QMainWindow):
                 return
         except Exception:  # noqa: BLE001
             return
-        icon_path = logo_path()
-        icon = QIcon(icon_path) if icon_path else self.windowIcon()
-        tray = QSystemTrayIcon(icon, self)
+        # Top-bar (tray) icon is symbolic white like Discord's so it
+        # blends with the other indicators. The colourful logo.png stays
+        # as the window/desktop icon and is intentionally not used here.
+        tray = QSystemTrayIcon(tray_icon("#FFFFFF"), self)
         menu = QMenu()
         self.tray_toggle_act = menu.addAction("")
         self.tray_toggle_act.triggered.connect(self._tray_toggle_window)

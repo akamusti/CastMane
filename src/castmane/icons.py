@@ -11,7 +11,15 @@ from __future__ import annotations
 from math import cos, pi, sin
 
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QTransform
+from PySide6.QtGui import (
+    QColor,
+    QIcon,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+    QTransform,
+)
 
 # Icons stroked with a pen: monitors, gauges, frames, glyph outlines.
 _STROKED = ("monitor", "audio", "region", "power", "folder", "gear")
@@ -127,3 +135,42 @@ def paint_icon(
         painter.setBrush(Qt.NoBrush)
         painter.drawPath(path)
     painter.restore()
+
+
+def tray_pixmap(px: int = 64, color: QColor | str = "#FFFFFF") -> QPixmap:
+    """White symbolic top-bar pixmap: monitor outline + centre dot.
+
+    GNOME top bar icons are monochrome white (like Discord's). The
+    colourful ``logo.png`` stays as the window/desktop icon ("ana
+    simge"); this is only for ``QSystemTrayIcon`` so it blends in
+    with the other white indicators.
+    """
+    tint = QColor(color)
+    if not tint.isValid():
+        tint = QColor("#FFFFFF")
+    side = max(16, int(px))
+    pix = QPixmap(side, side)
+    pix.fill(Qt.transparent)
+    p = QPainter(pix)
+    # Monitor fills the box; dot sits in the middle of the screen area
+    # (screen centre y ~= 0.42 in the 0..1 geometry).
+    paint_icon(p, "monitor", QRectF(0, 0, side, side), tint)
+    dot_side = side * 0.24
+    paint_icon(
+        p,
+        "dot",
+        QRectF(
+            (side - dot_side) / 2.0,
+            side * 0.42 - dot_side / 2.0,
+            dot_side,
+            dot_side,
+        ),
+        tint,
+    )
+    p.end()
+    return pix
+
+
+def tray_icon(color: QColor | str = "#FFFFFF") -> QIcon:
+    """White ``QIcon`` for the system tray (top bar)."""
+    return QIcon(tray_pixmap(64, color))
