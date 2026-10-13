@@ -122,6 +122,10 @@ def build_stylesheet(t: dict[str, str]) -> str:
     REC = t["REC"]
     REC_HOVER = t["REC_HOVER"]
     REC_PRESSED = t["REC_PRESSED"]
+    REC_TINT = t["REC_TINT"]
+    REC_BORDER = t["REC_BORDER"]
+    PAUSED = t["PAUSED"]
+    PAUSED_TINT = t["PAUSED_TINT"]
     return f"""
 QMainWindow, QWidget#Root {{
     background-color: {CANVAS};
@@ -235,10 +239,10 @@ QPushButton#Seg:disabled {{
 QPushButton#Record {{
     background-color: {INK};
     border: 1px solid {INK};
-    border-radius: {RADIUS}px;
-    padding: 10px 16px;
+    border-radius: 11px;
+    padding: 13px 16px;
     color: {PRIMARY_TEXT};
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 700;
 }}
 QPushButton#Record:hover {{
@@ -353,6 +357,66 @@ QPushButton#FolderBtn {{
 QPushButton#FolderBtn:hover {{
     background-color: {BTN_HOVER};
     border-color: {HAIRLINE};
+}}
+/* --- Studio cards --- */
+QFrame#Card {{
+    background-color: {SURFACE};
+    border: 1px solid {HAIRLINE};
+    border-radius: 10px;
+}}
+QLabel#SectionTitle {{
+    color: {TEXT_MUTED};
+    font-size: 11px;
+    font-weight: 700;
+}}
+/* --- State pill (header) --- */
+QLabel#Pill {{
+    border: 1px solid {HAIRLINE_STRONG};
+    border-radius: 9px;
+    padding: 3px 10px;
+    font-size: 11px;
+    font-weight: 700;
+    color: {TEXT_MUTED};
+    background-color: {SURFACE_SUNKEN};
+}}
+QLabel#Pill[state="recording"] {{
+    color: {REC};
+    border-color: {REC_BORDER};
+    background-color: {REC_TINT};
+}}
+QLabel#Pill[state="paused"] {{
+    color: {PAUSED};
+    border-color: {HAIRLINE_STRONG};
+    background-color: {PAUSED_TINT};
+}}
+/* --- Mixer channel strips --- */
+QFrame#Strip {{
+    background-color: {SURFACE_SUNKEN};
+    border: 1px solid {HAIRLINE};
+    border-radius: 8px;
+}}
+QLabel#StripName {{
+    color: {TEXT_MAIN};
+    font-size: 12px;
+    font-weight: 700;
+}}
+QLabel#StripValue {{
+    color: {TEXT_SOFT};
+    font-size: 11px;
+}}
+QSlider::groove:vertical {{
+    width: 4px;
+    background: {BTN_BORDER};
+    border: none;
+    border-radius: 2px;
+}}
+QSlider::handle:vertical {{
+    background: {SURFACE};
+    border: 1px solid {HAIRLINE_STRONG};
+    width: 14px;
+    height: 14px;
+    margin: 0 -6px;
+    border-radius: 7px;
 }}
 QToolTip {{
     background-color: {SURFACE};
@@ -656,9 +720,10 @@ class MainWindow(QMainWindow):
         self.cfg.theme = theme_mod.normalize_theme(self.cfg.theme)
         self.theme = theme_mod.get_theme(self.cfg.theme)
         self.rec = create_backend(self.cfg)
+        self._card_labels: list[QLabel] = []
         self.setWindowTitle("CastMane")
-        self.resize(820, 600)
-        self.setMinimumSize(680, 500)
+        self.resize(920, 660)
+        self.setMinimumSize(760, 560)
         self.setStyleSheet(build_stylesheet(self.theme))
         icon_path = logo_path()
         if icon_path:
@@ -736,6 +801,12 @@ class MainWindow(QMainWindow):
         text.addWidget(self.subtitle_lbl)
         row.addLayout(text, 1)
 
+        self.state_pill = QLabel("READY")
+        self.state_pill.setObjectName("Pill")
+        self.state_pill.setProperty("state", "ready")
+        self.state_pill.setAlignment(Qt.AlignCenter)
+        row.addWidget(self.state_pill)
+
         self.timer_lbl = QLabel("00:00:00")
         self.timer_lbl.setObjectName("Timer")
         self.timer_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -806,6 +877,42 @@ class MainWindow(QMainWindow):
         scroll.setWidget(holder)
         return scroll
 
+    def _card(self, i18n_key: str) -> tuple[QFrame, QVBoxLayout]:
+        """One studio card: titled SURFACE panel holding settings rows."""
+        frame = QFrame()
+        frame.setObjectName("Card")
+        outer = QVBoxLayout(frame)
+        outer.setContentsMargins(16, 12, 16, 12)
+        outer.setSpacing(4)
+        title = QLabel()
+        title.setObjectName("SectionTitle")
+        title.setProperty("i18n", i18n_key)
+        outer.addWidget(title)
+        inner = QVBoxLayout()
+        inner.setContentsMargins(0, 0, 0, 0)
+        inner.setSpacing(0)
+        outer.addLayout(inner)
+        self._card_labels.append(title)
+        return frame, inner
+
+    @staticmethod
+    def _strip(name: QLabel, slider: QSlider, value: QLabel) -> QFrame:
+        """One mixer channel strip: name, vertical fader, % readout."""
+        frame = QFrame()
+        frame.setObjectName("Strip")
+        box = QVBoxLayout(frame)
+        box.setContentsMargins(10, 10, 10, 10)
+        box.setSpacing(6)
+        box.addWidget(name)
+        fader_row = QHBoxLayout()
+        fader_row.setContentsMargins(0, 0, 0, 0)
+        fader_row.addStretch(1)
+        fader_row.addWidget(slider)
+        fader_row.addStretch(1)
+        box.addLayout(fader_row)
+        box.addWidget(value)
+        return frame
+
     def _row(
         self,
         label: QLabel,
@@ -815,8 +922,8 @@ class MainWindow(QMainWindow):
         """One settings row: fixed label column, control column, hint below."""
         box = QWidget()
         layout = QVBoxLayout(box)
-        layout.setContentsMargins(0, 12, 0, 12)
-        layout.setSpacing(8)
+        layout.setContentsMargins(0, 10, 0, 10)
+        layout.setSpacing(6)
         top = QHBoxLayout()
         top.setContentsMargins(0, 0, 0, 0)
         top.setSpacing(12)
@@ -847,7 +954,8 @@ class MainWindow(QMainWindow):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        layout.setSpacing(12)
+        video_card, video = self._card("card_video")
 
         self.lbl_source = QLabel()
         self.lbl_source.setObjectName("RowLabel")
@@ -858,8 +966,7 @@ class MainWindow(QMainWindow):
         self.mode_seg.changed.connect(self._on_mode_changed)
         self.hint_mode = QLabel()
         self.hint_mode.setObjectName("Hint")
-        layout.addWidget(self._row(self.lbl_source, self.mode_seg, self.hint_mode))
-        layout.addWidget(self._hairline())
+        video.addWidget(self._row(self.lbl_source, self.mode_seg, self.hint_mode))
 
         self.lbl_quality = QLabel()
         self.lbl_quality.setObjectName("RowLabel")
@@ -870,7 +977,7 @@ class MainWindow(QMainWindow):
         self.quality_seg.changed.connect(self._on_quality_changed)
         self.hint_quality = QLabel()
         self.hint_quality.setObjectName("Hint")
-        layout.addWidget(
+        video.addWidget(
             self._row(self.lbl_quality, self.quality_seg, self.hint_quality)
         )
 
@@ -878,9 +985,10 @@ class MainWindow(QMainWindow):
         self.lbl_fps.setObjectName("RowLabel")
         self.fps_spin = QSpinBox()
         self.fps_spin.setRange(FPS_MIN, FPS_MAX)
+        self.fps_spin.setFixedWidth(110)
         self.fps_spin.setValue(self.cfg.fps)
         self.fps_spin.valueChanged.connect(self._on_fps_changed)
-        layout.addWidget(self._row(self.lbl_fps, self.fps_spin))
+        video.addWidget(self._row(self.lbl_fps, self.fps_spin))
 
         self.lbl_bitrate = QLabel()
         self.lbl_bitrate.setObjectName("RowLabel")
@@ -888,11 +996,13 @@ class MainWindow(QMainWindow):
         self.br_spin.setRange(BITRATE_MIN_KBPS, BITRATE_MAX_KBPS)
         self.br_spin.setSingleStep(1000)
         self.br_spin.setSuffix(" kbps")
+        self.br_spin.setFixedWidth(170)
         self.br_spin.setValue(self.cfg.video_bitrate_kbps)
         self.br_spin.valueChanged.connect(self._on_bitrate_changed)
-        layout.addWidget(self._row(self.lbl_bitrate, self.br_spin))
-        layout.addWidget(self._hairline())
+        video.addWidget(self._row(self.lbl_bitrate, self.br_spin))
+        layout.addWidget(video_card)
 
+        auto_card, auto = self._card("card_automation")
         self.lbl_cursor = QLabel()
         self.lbl_cursor.setObjectName("RowLabel")
         cursor_wrap = QWidget()
@@ -905,8 +1015,7 @@ class MainWindow(QMainWindow):
         cursor_row.addStretch(1)
         self.hint_cursor = QLabel()
         self.hint_cursor.setObjectName("Hint")
-        layout.addWidget(self._row(self.lbl_cursor, cursor_wrap, self.hint_cursor))
-        layout.addWidget(self._hairline())
+        auto.addWidget(self._row(self.lbl_cursor, cursor_wrap, self.hint_cursor))
 
         self.lbl_countdown = QLabel()
         self.lbl_countdown.setObjectName("RowLabel")
@@ -917,10 +1026,9 @@ class MainWindow(QMainWindow):
         self.countdown_seg.changed.connect(self._on_countdown_changed)
         self.hint_countdown = QLabel()
         self.hint_countdown.setObjectName("Hint")
-        layout.addWidget(
+        auto.addWidget(
             self._row(self.lbl_countdown, self.countdown_seg, self.hint_countdown)
         )
-        layout.addWidget(self._hairline())
 
         self.lbl_autostop = QLabel()
         self.lbl_autostop.setObjectName("RowLabel")
@@ -939,10 +1047,9 @@ class MainWindow(QMainWindow):
         autostop_row.addStretch(1)
         self.hint_autostop = QLabel()
         self.hint_autostop.setObjectName("Hint")
-        layout.addWidget(
+        auto.addWidget(
             self._row(self.lbl_autostop, autostop_wrap, self.hint_autostop)
         )
-        layout.addWidget(self._hairline())
 
         self.lbl_replay = QLabel()
         self.lbl_replay.setObjectName("RowLabel")
@@ -965,17 +1072,66 @@ class MainWindow(QMainWindow):
         replay_row.addStretch(1)
         self.hint_replay = QLabel()
         self.hint_replay.setObjectName("Hint")
-        layout.addWidget(
+        auto.addWidget(
             self._row(self.lbl_replay, replay_wrap, self.hint_replay)
         )
+        layout.addWidget(auto_card)
+        layout.addStretch(1)
         return page
 
     def _build_audio_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        layout.setSpacing(12)
+        mixer_card, mixer = self._card("card_mixer")
 
+        self.mic_gain_slider = QSlider(Qt.Vertical)
+        self.mic_gain_slider.setRange(0, 500)
+        self.mic_gain_slider.setSingleStep(10)
+        self.mic_gain_slider.setPageStep(50)
+        self.mic_gain_slider.setMinimumHeight(130)
+        self.mic_gain_slider.setValue(round(self.cfg.mic_gain * 100))
+        self.mic_gain_slider.valueChanged.connect(self._on_mic_gain_changed)
+        self.mic_gain_value = QLabel()
+        self.mic_gain_value.setObjectName("StripValue")
+        self.mic_gain_value.setAlignment(Qt.AlignCenter)
+
+        self.desk_gain_slider = QSlider(Qt.Vertical)
+        self.desk_gain_slider.setRange(0, 500)
+        self.desk_gain_slider.setSingleStep(10)
+        self.desk_gain_slider.setPageStep(50)
+        self.desk_gain_slider.setMinimumHeight(130)
+        self.desk_gain_slider.setValue(round(self.cfg.desktop_gain * 100))
+        self.desk_gain_slider.valueChanged.connect(self._on_desk_gain_changed)
+        self.desk_gain_value = QLabel()
+        self.desk_gain_value.setObjectName("StripValue")
+        self.desk_gain_value.setAlignment(Qt.AlignCenter)
+
+        self.lbl_mic_gain = QLabel()
+        self.lbl_mic_gain.setObjectName("StripName")
+        self.lbl_mic_gain.setAlignment(Qt.AlignCenter)
+        self.lbl_desk_gain = QLabel()
+        self.lbl_desk_gain.setObjectName("StripName")
+        self.lbl_desk_gain.setAlignment(Qt.AlignCenter)
+        strips = QHBoxLayout()
+        strips.setContentsMargins(0, 4, 0, 4)
+        strips.setSpacing(12)
+        strips.addWidget(self._strip(self.lbl_mic_gain, self.mic_gain_slider,
+                                     self.mic_gain_value), 1)
+        strips.addWidget(self._strip(self.lbl_desk_gain, self.desk_gain_slider,
+                                     self.desk_gain_value), 1)
+        mixer.addLayout(strips)
+        self.hint_mixer = QLabel()
+        self.hint_mixer.setObjectName("Hint")
+        self.hint_mixer.setWordWrap(True)
+        mixer.addWidget(self.hint_mixer)
+        layout.addWidget(mixer_card)
+        # Compat alias: old code/tests touched `gain_slider`.
+        self.gain_slider = self.mic_gain_slider
+        self.gain_value = self.mic_gain_value
+
+        src_card, src = self._card("card_sources")
         self.audio_lbl = QLabel()
         self.audio_lbl.setObjectName("RowLabel")
         audio_wrap = QWidget()
@@ -986,8 +1142,7 @@ class MainWindow(QMainWindow):
         self.audio_sw.toggled.connect(self._on_audio_toggled)
         audio_row.addWidget(self.audio_sw)
         audio_row.addStretch(1)
-        layout.addWidget(self._row(self.audio_lbl, audio_wrap))
-        layout.addWidget(self._hairline())
+        src.addWidget(self._row(self.audio_lbl, audio_wrap))
 
         self.lbl_audio_mode = QLabel()
         self.lbl_audio_mode.setObjectName("RowLabel")
@@ -998,57 +1153,9 @@ class MainWindow(QMainWindow):
         self.audio_mode_seg.changed.connect(self._on_audio_mode_changed)
         self.hint_audio_mode = QLabel()
         self.hint_audio_mode.setObjectName("Hint")
-        layout.addWidget(
+        src.addWidget(
             self._row(self.lbl_audio_mode, self.audio_mode_seg, self.hint_audio_mode)
         )
-        layout.addWidget(self._hairline())
-
-        self.lbl_mic_gain = QLabel()
-        self.lbl_mic_gain.setObjectName("RowLabel")
-        mic_wrap = QWidget()
-        mic_row = QHBoxLayout(mic_wrap)
-        mic_row.setContentsMargins(0, 0, 0, 0)
-        mic_row.setSpacing(10)
-        self.mic_gain_slider = QSlider(Qt.Horizontal)
-        self.mic_gain_slider.setRange(0, 500)
-        self.mic_gain_slider.setSingleStep(10)
-        self.mic_gain_slider.setPageStep(50)
-        self.mic_gain_slider.setValue(round(self.cfg.mic_gain * 100))
-        self.mic_gain_slider.valueChanged.connect(self._on_mic_gain_changed)
-        mic_row.addWidget(self.mic_gain_slider, 1)
-        self.mic_gain_value = QLabel()
-        self.mic_gain_value.setObjectName("RowLabel")
-        self.mic_gain_value.setMinimumWidth(52)
-        self.mic_gain_value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        mic_row.addWidget(self.mic_gain_value)
-        layout.addWidget(self._row(self.lbl_mic_gain, mic_wrap))
-        layout.addWidget(self._hairline())
-
-        self.lbl_desk_gain = QLabel()
-        self.lbl_desk_gain.setObjectName("RowLabel")
-        desk_wrap = QWidget()
-        desk_row = QHBoxLayout(desk_wrap)
-        desk_row.setContentsMargins(0, 0, 0, 0)
-        desk_row.setSpacing(10)
-        self.desk_gain_slider = QSlider(Qt.Horizontal)
-        self.desk_gain_slider.setRange(0, 500)
-        self.desk_gain_slider.setSingleStep(10)
-        self.desk_gain_slider.setPageStep(50)
-        self.desk_gain_slider.setValue(round(self.cfg.desktop_gain * 100))
-        self.desk_gain_slider.valueChanged.connect(self._on_desk_gain_changed)
-        desk_row.addWidget(self.desk_gain_slider, 1)
-        self.desk_gain_value = QLabel()
-        self.desk_gain_value.setObjectName("RowLabel")
-        self.desk_gain_value.setMinimumWidth(52)
-        self.desk_gain_value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        desk_row.addWidget(self.desk_gain_value)
-        self.hint_mixer = QLabel()
-        self.hint_mixer.setObjectName("Hint")
-        layout.addWidget(self._row(self.lbl_desk_gain, desk_wrap, self.hint_mixer))
-        layout.addWidget(self._hairline())
-        # Compat alias: old code/tests touched `gain_slider`.
-        self.gain_slider = self.mic_gain_slider
-        self.gain_value = self.mic_gain_value
 
         self.lbl_source_name = QLabel()
         self.lbl_source_name.setObjectName("RowLabel")
@@ -1057,26 +1164,28 @@ class MainWindow(QMainWindow):
         self.audio_source_edit.textChanged.connect(self._on_audio_source_changed)
         self.hint_audio = QLabel()
         self.hint_audio.setObjectName("Hint")
-        layout.addWidget(
+        src.addWidget(
             self._row(self.lbl_source_name, self.audio_source_edit, self.hint_audio)
         )
-        layout.addWidget(self._hairline())
 
         self.lbl_desktop_source_name = QLabel()
         self.lbl_desktop_source_name.setObjectName("RowLabel")
         self.audio_desktop_edit = QLineEdit(self.cfg.audio_desktop_source)
         self.audio_desktop_edit.setPlaceholderText("auto")
         self.audio_desktop_edit.textChanged.connect(self._on_audio_desktop_changed)
-        layout.addWidget(
+        src.addWidget(
             self._row(self.lbl_desktop_source_name, self.audio_desktop_edit)
         )
+        layout.addWidget(src_card)
+        layout.addStretch(1)
         return page
 
     def _build_region_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        layout.setSpacing(12)
+        card, body = self._card("label_region")
 
         self.lbl_region = QLabel()
         self.lbl_region.setObjectName("RowLabel")
@@ -1105,14 +1214,17 @@ class MainWindow(QMainWindow):
             grid.addWidget(spin, i // 2, i % 2)
         self.hint_region = QLabel()
         self.hint_region.setObjectName("Hint")
-        layout.addWidget(self._row(self.lbl_region, grid_wrap, self.hint_region))
+        body.addWidget(self._row(self.lbl_region, grid_wrap, self.hint_region))
+        layout.addWidget(card)
+        layout.addStretch(1)
         return page
 
     def _build_output_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        layout.setSpacing(12)
+        store_card, store = self._card("card_storage")
 
         self.lbl_output_folder = QLabel()
         self.lbl_output_folder.setObjectName("RowLabel")
@@ -1128,17 +1240,15 @@ class MainWindow(QMainWindow):
         folder_row.addWidget(self.browse_btn)
         self.hint_output = QLabel()
         self.hint_output.setObjectName("Hint")
-        layout.addWidget(
+        store.addWidget(
             self._row(self.lbl_output_folder, folder_wrap, self.hint_output)
         )
-        layout.addWidget(self._hairline())
 
         self.lbl_disk = QLabel()
         self.lbl_disk.setObjectName("RowLabel")
         self.disk_value = QLabel()
         self.disk_value.setObjectName("Hint")
-        layout.addWidget(self._row(self.lbl_disk, self.disk_value))
-        layout.addWidget(self._hairline())
+        store.addWidget(self._row(self.lbl_disk, self.disk_value))
 
         self.lbl_prefix = QLabel()
         self.lbl_prefix.setObjectName("RowLabel")
@@ -1147,10 +1257,9 @@ class MainWindow(QMainWindow):
         self.prefix_edit.textChanged.connect(self._on_prefix_changed)
         self.hint_prefix = QLabel()
         self.hint_prefix.setObjectName("Hint")
-        layout.addWidget(
+        store.addWidget(
             self._row(self.lbl_prefix, self.prefix_edit, self.hint_prefix)
         )
-        layout.addWidget(self._hairline())
 
         self.lbl_format = QLabel()
         self.lbl_format.setObjectName("RowLabel")
@@ -1159,13 +1268,13 @@ class MainWindow(QMainWindow):
         self.format_seg.changed.connect(self._on_format_changed)
         self.hint_format = QLabel()
         self.hint_format.setObjectName("Hint")
-        layout.addWidget(
+        store.addWidget(
             self._row(self.lbl_format, self.format_seg, self.hint_format)
         )
-        layout.addWidget(self._hairline())
+        layout.addWidget(store_card)
 
         self.lbl_recent = QLabel()
-        self.lbl_recent.setObjectName("RowLabel")
+        self.lbl_recent.setObjectName("SectionTitle")
         recent_wrap = QWidget()
         recent_col = QVBoxLayout(recent_wrap)
         recent_col.setContentsMargins(0, 0, 0, 0)
@@ -1189,14 +1298,23 @@ class MainWindow(QMainWindow):
         recent_btns.addWidget(self.recent_refresh_btn)
         recent_btns.addStretch(1)
         recent_col.addLayout(recent_btns)
-        layout.addWidget(self._row(self.lbl_recent, recent_wrap))
+        recent_card = QFrame()
+        recent_card.setObjectName("Card")
+        rc_outer = QVBoxLayout(recent_card)
+        rc_outer.setContentsMargins(16, 12, 16, 12)
+        rc_outer.setSpacing(4)
+        rc_outer.addWidget(self.lbl_recent)
+        rc_outer.addWidget(recent_wrap)
+        layout.addWidget(recent_card)
+        layout.addStretch(1)
         return page
 
     def _build_settings_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        layout.setSpacing(12)
+        gen_card, gen = self._card("card_general")
 
         self.lbl_language = QLabel()
         self.lbl_language.setObjectName("RowLabel")
@@ -1207,10 +1325,9 @@ class MainWindow(QMainWindow):
         self.lang_seg.changed.connect(self._on_language_changed)
         self.hint_language = QLabel()
         self.hint_language.setObjectName("Hint")
-        layout.addWidget(
+        gen.addWidget(
             self._row(self.lbl_language, self.lang_seg, self.hint_language)
         )
-        layout.addWidget(self._hairline())
 
         self.lbl_theme = QLabel()
         self.lbl_theme.setObjectName("RowLabel")
@@ -1221,9 +1338,10 @@ class MainWindow(QMainWindow):
         self.theme_seg.changed.connect(self._on_theme_changed)
         self.hint_theme = QLabel()
         self.hint_theme.setObjectName("Hint")
-        layout.addWidget(self._row(self.lbl_theme, self.theme_seg, self.hint_theme))
-        layout.addWidget(self._hairline())
+        gen.addWidget(self._row(self.lbl_theme, self.theme_seg, self.hint_theme))
+        layout.addWidget(gen_card)
 
+        sc_card, sc_body = self._card("card_shortcuts")
         self.lbl_shortcuts = QLabel()
         self.lbl_shortcuts.setObjectName("RowLabel")
         sc_wrap = QWidget()
@@ -1254,9 +1372,11 @@ class MainWindow(QMainWindow):
                          for r in range(2) for c in (0, 2)]
         self.hint_shortcuts = QLabel()
         self.hint_shortcuts.setObjectName("Hint")
-        layout.addWidget(
+        sc_body.addWidget(
             self._row(self.lbl_shortcuts, sc_wrap, self.hint_shortcuts)
         )
+        layout.addWidget(sc_card)
+        layout.addStretch(1)
         return page
 
     def _build_transport(self) -> QFrame:
@@ -1267,6 +1387,7 @@ class MainWindow(QMainWindow):
         row.setSpacing(10)
         self.record_btn = RecordButton()
         self.record_btn.clicked.connect(self.toggle)
+        self.record_btn.setMinimumHeight(48)
         row.addWidget(self.record_btn, 1)
         self.pause_btn = QPushButton()
         self.pause_btn.setObjectName("Pause")
@@ -1274,12 +1395,14 @@ class MainWindow(QMainWindow):
         self.pause_btn.setCursor(Qt.PointingHandCursor)
         self.pause_btn.clicked.connect(self.toggle_pause)
         self.pause_btn.setFixedWidth(118)
+        self.pause_btn.setMinimumHeight(48)
         row.addWidget(self.pause_btn)
         self.replay_btn = QPushButton()
         self.replay_btn.setObjectName("Pause")
         self.replay_btn.setCursor(Qt.PointingHandCursor)
         self.replay_btn.clicked.connect(self.save_replay_clip)
         self.replay_btn.setFixedWidth(132)
+        self.replay_btn.setMinimumHeight(48)
         row.addWidget(self.replay_btn)
         return bar
 
@@ -1432,6 +1555,10 @@ class MainWindow(QMainWindow):
                 tag.setText(_get(key, lang))
 
         self.backend_lbl.setText(_get("backend_line", lang).format(name=self.rec.name))
+        for title in self._card_labels:
+            key = title.property("i18n")
+            if key:
+                title.setText(_get(key, lang))
         self.folder_btn.setToolTip(_get("open_folder", lang))
         self._refresh_outcome()
         self._paint_folder_icon()
@@ -1474,10 +1601,16 @@ class MainWindow(QMainWindow):
     def _refresh_state_dot(self) -> None:
         if self.rec.state.paused:
             self.status_dot.set_color(self.theme["PAUSED"])
+            state, pill = "paused", self.t("pill_paused")
         elif self.rec.state.active:
             self.status_dot.set_color(self.theme["REC"])
+            state, pill = "recording", self.t("pill_recording")
         else:
             self.status_dot.set_color(self.theme["READY"])
+            state, pill = "ready", self.t("pill_ready")
+        self.state_pill.setText(pill)
+        self.state_pill.setProperty("state", state)
+        _repolish(self.state_pill)
 
     def _refresh_mode_hint(self) -> None:
         self.hint_mode.setText(self.t(f"mode_{self.mode_seg.current_data()}_hint"))

@@ -58,7 +58,9 @@ and all PyPI dependencies.
 | Minimal UI | Record / Stop / Pause, elapsed timer, status line |
 | Pause & quality | Freeze the encoder mid-take; Draft / Balanced / High / Custom presets |
 | Source choice | Full-screen, single window, or ask every time |
-| Audio | Optional mic or system-sound capture (AAC) with software gain |
+| Audio | Optional mic or system-sound capture (AAC) with per-source mixer gain |
+| Replay buffer | Keep the last N seconds on disk, save the moment after it happened |
+| Shortcuts | Configurable Record / Pause / Replay / Folder keys, headless `--record` CLI |
 | Output | Timestamped `castmane_YYYY-MM-DD_HH-MM-SS.mp4` or `.mkv` files in `~/Videos/CastMane`, recent-recordings list |
 
 ## Requirements

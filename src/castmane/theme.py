@@ -65,8 +65,8 @@ RADIUS = 7  # controls
 RADIUS_SM = 5  # inner elements: segments, chips
 RADIUS_LG = 9  # containers
 
-HEADER_H = 52
-SIDEBAR_W = 176
+HEADER_H = 58
+SIDEBAR_W = 188
 NAV_H = 34
 FOOTER_H = 34
 TRANSPORT_GAP = 14
