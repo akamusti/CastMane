@@ -76,3 +76,19 @@ def resolve_desktop_source(value: str) -> str:
     if (value or "").strip().lower() in DESKTOP_ALIASES:
         return detect_monitor_source()
     return value.strip()
+
+
+def effective_gains(cfg) -> tuple[float, float]:
+    """Per-source (mic, desktop) gains with legacy `audio_gain` fallback.
+
+    Old settings files only have `audio_gain`: when both new gains are at
+    default (1.0) but the legacy master is not, the master applies to both.
+    """
+    from .config import clamp_gain
+
+    legacy = clamp_gain(getattr(cfg, "audio_gain", 1.0))
+    mic = clamp_gain(getattr(cfg, "mic_gain", 1.0))
+    desk = clamp_gain(getattr(cfg, "desktop_gain", 1.0))
+    if mic == 1.0 and desk == 1.0 and legacy != 1.0:
+        return legacy, legacy
+    return mic, desk

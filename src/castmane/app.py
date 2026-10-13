@@ -942,6 +942,32 @@ class MainWindow(QMainWindow):
         layout.addWidget(
             self._row(self.lbl_autostop, autostop_wrap, self.hint_autostop)
         )
+        layout.addWidget(self._hairline())
+
+        self.lbl_replay = QLabel()
+        self.lbl_replay.setObjectName("RowLabel")
+        replay_wrap = QWidget()
+        replay_row = QHBoxLayout(replay_wrap)
+        replay_row.setContentsMargins(0, 0, 0, 0)
+        replay_row.setSpacing(10)
+        self.replay_sw = Switch()
+        self.replay_sw.setChecked(self.cfg.replay_enabled)
+        self.replay_sw.toggled.connect(self._on_replay_toggled)
+        replay_row.addWidget(self.replay_sw)
+        self.replay_spin = QSpinBox()
+        self.replay_spin.setRange(10, 600)
+        self.replay_spin.setValue(self.cfg.replay_seconds)
+        self.replay_spin.valueChanged.connect(self._on_replay_seconds_changed)
+        replay_row.addWidget(self.replay_spin)
+        self.replay_unit = QLabel()
+        self.replay_unit.setObjectName("Hint")
+        replay_row.addWidget(self.replay_unit)
+        replay_row.addStretch(1)
+        self.hint_replay = QLabel()
+        self.hint_replay.setObjectName("Hint")
+        layout.addWidget(
+            self._row(self.lbl_replay, replay_wrap, self.hint_replay)
+        )
         return page
 
     def _build_audio_page(self) -> QWidget:
@@ -977,26 +1003,52 @@ class MainWindow(QMainWindow):
         )
         layout.addWidget(self._hairline())
 
-        self.lbl_gain = QLabel()
-        self.lbl_gain.setObjectName("RowLabel")
-        gain_wrap = QWidget()
-        gain_row = QHBoxLayout(gain_wrap)
-        gain_row.setContentsMargins(0, 0, 0, 0)
-        gain_row.setSpacing(10)
-        self.gain_slider = QSlider(Qt.Horizontal)
-        self.gain_slider.setRange(10, 500)
-        self.gain_slider.setSingleStep(10)
-        self.gain_slider.setPageStep(50)
-        self.gain_slider.setValue(int(round(self.cfg.audio_gain * 100)))
-        self.gain_slider.valueChanged.connect(self._on_gain_changed)
-        gain_row.addWidget(self.gain_slider, 1)
-        self.gain_value = QLabel()
-        self.gain_value.setObjectName("RowLabel")
-        self.gain_value.setMinimumWidth(52)
-        self.gain_value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        gain_row.addWidget(self.gain_value)
-        layout.addWidget(self._row(self.lbl_gain, gain_wrap))
+        self.lbl_mic_gain = QLabel()
+        self.lbl_mic_gain.setObjectName("RowLabel")
+        mic_wrap = QWidget()
+        mic_row = QHBoxLayout(mic_wrap)
+        mic_row.setContentsMargins(0, 0, 0, 0)
+        mic_row.setSpacing(10)
+        self.mic_gain_slider = QSlider(Qt.Horizontal)
+        self.mic_gain_slider.setRange(0, 500)
+        self.mic_gain_slider.setSingleStep(10)
+        self.mic_gain_slider.setPageStep(50)
+        self.mic_gain_slider.setValue(round(self.cfg.mic_gain * 100))
+        self.mic_gain_slider.valueChanged.connect(self._on_mic_gain_changed)
+        mic_row.addWidget(self.mic_gain_slider, 1)
+        self.mic_gain_value = QLabel()
+        self.mic_gain_value.setObjectName("RowLabel")
+        self.mic_gain_value.setMinimumWidth(52)
+        self.mic_gain_value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        mic_row.addWidget(self.mic_gain_value)
+        layout.addWidget(self._row(self.lbl_mic_gain, mic_wrap))
         layout.addWidget(self._hairline())
+
+        self.lbl_desk_gain = QLabel()
+        self.lbl_desk_gain.setObjectName("RowLabel")
+        desk_wrap = QWidget()
+        desk_row = QHBoxLayout(desk_wrap)
+        desk_row.setContentsMargins(0, 0, 0, 0)
+        desk_row.setSpacing(10)
+        self.desk_gain_slider = QSlider(Qt.Horizontal)
+        self.desk_gain_slider.setRange(0, 500)
+        self.desk_gain_slider.setSingleStep(10)
+        self.desk_gain_slider.setPageStep(50)
+        self.desk_gain_slider.setValue(round(self.cfg.desktop_gain * 100))
+        self.desk_gain_slider.valueChanged.connect(self._on_desk_gain_changed)
+        desk_row.addWidget(self.desk_gain_slider, 1)
+        self.desk_gain_value = QLabel()
+        self.desk_gain_value.setObjectName("RowLabel")
+        self.desk_gain_value.setMinimumWidth(52)
+        self.desk_gain_value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        desk_row.addWidget(self.desk_gain_value)
+        self.hint_mixer = QLabel()
+        self.hint_mixer.setObjectName("Hint")
+        layout.addWidget(self._row(self.lbl_desk_gain, desk_wrap, self.hint_mixer))
+        layout.addWidget(self._hairline())
+        # Compat alias: old code/tests touched `gain_slider`.
+        self.gain_slider = self.mic_gain_slider
+        self.gain_value = self.mic_gain_value
 
         self.lbl_source_name = QLabel()
         self.lbl_source_name.setObjectName("RowLabel")
@@ -1170,6 +1222,41 @@ class MainWindow(QMainWindow):
         self.hint_theme = QLabel()
         self.hint_theme.setObjectName("Hint")
         layout.addWidget(self._row(self.lbl_theme, self.theme_seg, self.hint_theme))
+        layout.addWidget(self._hairline())
+
+        self.lbl_shortcuts = QLabel()
+        self.lbl_shortcuts.setObjectName("RowLabel")
+        sc_wrap = QWidget()
+        sc_grid = QGridLayout(sc_wrap)
+        sc_grid.setContentsMargins(0, 0, 0, 0)
+        sc_grid.setHorizontalSpacing(10)
+        sc_grid.setVerticalSpacing(8)
+        self.sc_edits: dict[str, QLineEdit] = {}
+        for i, (key, attr) in enumerate(
+            (
+                ("shortcut_record", "shortcut_record"),
+                ("shortcut_pause", "shortcut_pause"),
+                ("shortcut_replay", "shortcut_replay"),
+                ("shortcut_folder", "shortcut_folder"),
+            )
+        ):
+            edit = QLineEdit(getattr(self.cfg, attr))
+            edit.setMaxLength(32)
+            edit.setPlaceholderText(attr)
+            edit.editingFinished.connect(self._on_shortcuts_edited)
+            self.sc_edits[attr] = edit
+            sc_grid.addWidget(edit, i // 2, (i % 2) * 2 + 1)
+            tag = QLabel()
+            tag.setObjectName("RowLabel")
+            tag.setProperty("sc_key", key)
+            sc_grid.addWidget(tag, i // 2, (i % 2) * 2)
+        self._sc_tags = [sc_grid.itemAtPosition(r, c).widget()
+                         for r in range(2) for c in (0, 2)]
+        self.hint_shortcuts = QLabel()
+        self.hint_shortcuts.setObjectName("Hint")
+        layout.addWidget(
+            self._row(self.lbl_shortcuts, sc_wrap, self.hint_shortcuts)
+        )
         return page
 
     def _build_transport(self) -> QFrame:
@@ -1188,6 +1275,12 @@ class MainWindow(QMainWindow):
         self.pause_btn.clicked.connect(self.toggle_pause)
         self.pause_btn.setFixedWidth(118)
         row.addWidget(self.pause_btn)
+        self.replay_btn = QPushButton()
+        self.replay_btn.setObjectName("Pause")
+        self.replay_btn.setCursor(Qt.PointingHandCursor)
+        self.replay_btn.clicked.connect(self.save_replay_clip)
+        self.replay_btn.setFixedWidth(132)
+        row.addWidget(self.replay_btn)
         return bar
 
     def _build_statusbar(self) -> QFrame:
@@ -1284,11 +1377,13 @@ class MainWindow(QMainWindow):
             ]
         )
         self._refresh_audio_mode_hint()
-        self.lbl_gain.setText(_get("label_gain", lang))
+        self.lbl_mic_gain.setText(_get("label_mic_gain", lang))
+        self.lbl_desk_gain.setText(_get("label_desktop_gain", lang))
+        self.hint_mixer.setText(_get("mixer_hint", lang))
         self.lbl_source_name.setText(_get("label_source_name", lang))
         self.lbl_desktop_source_name.setText(_get("label_desktop_source", lang))
         self.hint_audio.setText(_get("audio_hint", lang))
-        self._refresh_gain_label()
+        self._refresh_gain_labels()
 
         self.lbl_region.setText(_get("label_region", lang))
         self.hint_region.setText(_get("region_hint", lang))
@@ -1303,6 +1398,10 @@ class MainWindow(QMainWindow):
         self.lbl_autostop.setText(_get("label_autostop", lang))
         self.autostop_unit.setText(_get("autostop_minutes", lang))
         self.hint_autostop.setText(_get("autostop_hint", lang))
+        self.lbl_replay.setText(_get("label_replay", lang))
+        self.replay_unit.setText(_get("replay_seconds", lang))
+        self.hint_replay.setText(_get("replay_hint", lang))
+        self.replay_btn.setText(_get("replay_save", lang))
 
         self.lbl_output_folder.setText(_get("label_output_folder", lang))
         self.browse_btn.setText(_get("output_browse", lang))
@@ -1325,6 +1424,12 @@ class MainWindow(QMainWindow):
             [_get(f"theme_{name}", lang) for name in theme_mod.SUPPORTED_THEMES]
         )
         self.hint_theme.setText(_get("theme_hint", lang))
+        self.lbl_shortcuts.setText(_get("label_shortcuts", lang))
+        self.hint_shortcuts.setText(_get("shortcuts_hint", lang))
+        for tag in getattr(self, "_sc_tags", []):
+            key = tag.property("sc_key")
+            if key:
+                tag.setText(_get(key, lang))
 
         self.backend_lbl.setText(_get("backend_line", lang).format(name=self.rec.name))
         self.folder_btn.setToolTip(_get("open_folder", lang))
@@ -1387,8 +1492,14 @@ class MainWindow(QMainWindow):
             self.t(f"audio_mode_{self.audio_mode_seg.current_data()}_hint")
         )
 
+    def _refresh_gain_labels(self) -> None:
+        self.mic_gain_value.setText(
+            self.t("gain_value").format(pct=self.mic_gain_slider.value()))
+        self.desk_gain_value.setText(
+            self.t("gain_value").format(pct=self.desk_gain_slider.value()))
+
     def _refresh_gain_label(self) -> None:
-        self.gain_value.setText(self.t("gain_value").format(pct=self.gain_slider.value()))
+        self._refresh_gain_labels()
 
     def _on_language_changed(self, code: str) -> None:
         if not code:
@@ -1429,16 +1540,33 @@ class MainWindow(QMainWindow):
         return ("capture", "audio", "region", "output", "settings").index(code)
 
     def _setup_shortcuts(self) -> None:
-        """Keyboard: R/Space = record-stop, P = pause, F = open folder."""
-        for seq, slot in (
-            ("R", self.toggle),
-            ("Space", self.toggle),
-            ("P", self.toggle_pause),
-            ("F", self.open_output_folder),
-        ):
-            sc = QShortcut(QKeySequence(seq), self)
+        """Window shortcuts: configurable (Settings page) + Space alias."""
+        self._shortcuts: list[QShortcut] = []
+        self._refresh_shortcuts()
+
+    def _refresh_shortcuts(self) -> None:
+        for sc in getattr(self, "_shortcuts", []):
+            try:
+                sc.setEnabled(False)
+                sc.deleteLater()
+            except Exception:  # noqa: BLE001, S110 - best effort teardown
+                pass
+        self._shortcuts = []
+
+        def _add(seq: str, slot) -> None:
+            try:
+                sc = QShortcut(QKeySequence(seq), self)
+            except Exception:  # noqa: BLE001, S110 - bad shortcut string
+                return
             sc.setContext(Qt.WindowShortcut)
             sc.activated.connect(slot)
+            self._shortcuts.append(sc)
+
+        _add(self.cfg.shortcut_record, self.toggle)
+        _add("Space", self.toggle)
+        _add(self.cfg.shortcut_pause, self.toggle_pause)
+        _add(self.cfg.shortcut_folder, self.open_output_folder)
+        _add(self.cfg.shortcut_replay, self.save_replay_clip)
 
     # --- System tray + notifications ---
 
@@ -1542,11 +1670,14 @@ class MainWindow(QMainWindow):
         self.cursor_sw.setEnabled(enabled)
         self.countdown_seg.set_enabled(enabled)
         self.autostop_spin.setEnabled(enabled)
+        self.replay_sw.setEnabled(enabled)
+        self.replay_spin.setEnabled(enabled)
         self.lang_seg.set_enabled(enabled)
         self.theme_seg.set_enabled(enabled)
         self.audio_sw.setEnabled(enabled)
         self.audio_mode_seg.set_enabled(enabled)
-        self.gain_slider.setEnabled(enabled)
+        self.mic_gain_slider.setEnabled(enabled)
+        self.desk_gain_slider.setEnabled(enabled)
         self.audio_source_edit.setEnabled(enabled)
         self.audio_desktop_edit.setEnabled(enabled)
         self.output_edit.setEnabled(enabled)
@@ -1770,14 +1901,32 @@ class MainWindow(QMainWindow):
         except AttributeError:
             pass
 
-    def _on_gain_changed(self, pct: int) -> None:
-        gain = pct / 100.0
-        self.cfg.audio_gain = gain
+    def _on_mic_gain_changed(self, pct: int) -> None:
+        from .config import clamp_gain
+
+        gain = clamp_gain(pct / 100.0)
+        self.cfg.mic_gain = gain
         try:
-            self.rec.cfg.audio_gain = gain
+            self.rec.cfg.mic_gain = gain
         except AttributeError:
             pass
-        self._refresh_gain_label()
+        self._refresh_gain_labels()
+        self.cfg.save()
+
+    def _on_desk_gain_changed(self, pct: int) -> None:
+        from .config import clamp_gain
+
+        gain = clamp_gain(pct / 100.0)
+        self.cfg.desktop_gain = gain
+        try:
+            self.rec.cfg.desktop_gain = gain
+        except AttributeError:
+            pass
+        self._refresh_gain_labels()
+        self.cfg.save()
+
+    def _on_gain_changed(self, pct: int) -> None:
+        self._on_mic_gain_changed(pct)
 
     def _on_audio_source_changed(self, text: str) -> None:
         value = text.strip() or "auto"
@@ -1975,6 +2124,63 @@ class MainWindow(QMainWindow):
         except AttributeError:
             pass
         self.cfg.save()
+
+    def _on_replay_toggled(self, checked: bool) -> None:
+        self.cfg.replay_enabled = checked
+        try:
+            self.rec.cfg.replay_enabled = checked
+        except AttributeError:
+            pass
+        self.cfg.save()
+
+    def _on_replay_seconds_changed(self, value: int) -> None:
+        from .config import normalize_replay_seconds
+
+        self.cfg.replay_seconds = normalize_replay_seconds(value)
+        try:
+            self.rec.cfg.replay_seconds = self.cfg.replay_seconds
+        except AttributeError:
+            pass
+        self.cfg.save()
+
+    def _on_shortcuts_edited(self) -> None:
+        from .config import normalize_shortcut
+
+        edits = getattr(self, "sc_edits", {})
+        defaults = {"shortcut_record": "R", "shortcut_pause": "P",
+                    "shortcut_replay": "T", "shortcut_folder": "F"}
+        for attr, edit in edits.items():
+            value = normalize_shortcut(edit.text(), defaults[attr])
+            setattr(self.cfg, attr, value)
+            try:
+                setattr(self.rec.cfg, attr, value)
+            except AttributeError:
+                pass
+            edit.blockSignals(True)
+            edit.setText(value)
+            edit.blockSignals(False)
+        self._refresh_shortcuts()
+        self.cfg.save()
+
+    def save_replay_clip(self) -> None:
+        from . import replay as replay_mod
+
+        if not self.cfg.replay_enabled:
+            self._fail(self.t("replay_off"))
+            return
+        segs = replay_mod.list_segments(self.cfg.output_dir)
+        picked = replay_mod.select_segments_for_save(segs, self.cfg.replay_seconds)
+        if not picked:
+            self._fail(self.t("replay_empty"))
+            return
+        dest = self.cfg.next_output_path()
+        if replay_mod.save_replay(picked, dest):
+            self._clear_error()
+            self.status_lbl.setText(self.t("replay_saved").format(out=dest.name))
+            self._refresh_recent()
+            self._notify(self.t("replay_saved").format(out=dest.name))
+        else:
+            self._fail(self.t("replay_empty"))
 
     def _on_output_dir_changed(self, text: str) -> None:
         value = text.strip() or str(Path.home() / "Videos" / "CastMane")

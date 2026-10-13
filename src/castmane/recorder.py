@@ -118,7 +118,12 @@ class FfmpegX11Recorder:
         self._stop_requested = threading.Event()
 
     def build_cmd(self, tmp: Path) -> list[str]:
-        from .audio import normalize_audio_mode, resolve_desktop_source, resolve_mic_source
+        from .audio import (
+            effective_gains,
+            normalize_audio_mode,
+            resolve_desktop_source,
+            resolve_mic_source,
+        )
         from .config import normalize_format
 
         display = os.environ.get("DISPLAY", ":0")
@@ -167,25 +172,31 @@ class FfmpegX11Recorder:
         if self.cfg.audio_enabled:
             cmd += ["-c:a", "aac", "-b:a", f"{self.cfg.audio_bitrate_kbps}k"]
             mode = normalize_audio_mode(self.cfg.audio_mode)
+            mic_gain, desk_gain = effective_gains(self.cfg)
             if mode == "both":
                 # Mix mic (1:a) + desktop (2:a) down to one AAC track.
-                # Gain is applied per input so mic/desktop stay balanced.
-                if self.cfg.audio_gain != 1.0:
-                    filt = (
-                        f"[1:a]volume={self.cfg.audio_gain}[a0];"
-                        f"[2:a]volume={self.cfg.audio_gain}[a1];"
-                        "[a0][a1]amix=inputs=2:duration=longest:"
-                        "dropout_transition=0[aout]"
-                    )
+                # Per-source gain keeps mic/desktop balanced (OBS-style mixer).
+                parts = []
+                if mic_gain != 1.0:
+                    parts.append(f"[1:a]volume={mic_gain}[a0]")
                 else:
-                    filt = (
-                        "[1:a][2:a]amix=inputs=2:duration=longest:"
-                        "dropout_transition=0[aout]"
-                    )
+                    parts.append("[1:a]anull[a0]")
+                if desk_gain != 1.0:
+                    parts.append(f"[2:a]volume={desk_gain}[a1]")
+                else:
+                    parts.append("[2:a]anull[a1]")
+                parts.append(
+                    "[a0][a1]amix=inputs=2:duration=longest:"
+                    "dropout_transition=0[aout]"
+                )
+                filt = ";".join(parts)
                 cmd += ["-filter_complex", filt, "-map", "0:v", "-map", "[aout]"]
             # Software gain: no filter added at 1.0.
-            elif self.cfg.audio_gain != 1.0:
-                cmd += ["-filter:a", f"volume={self.cfg.audio_gain}"]
+            elif mode == "desktop":
+                if desk_gain != 1.0:
+                    cmd += ["-filter:a", f"volume={desk_gain}"]
+            elif mic_gain != 1.0:
+                cmd += ["-filter:a", f"volume={mic_gain}"]
         if normalize_format(self.cfg.output_format) == "mkv":
             # Matroska needs no movflags: it is streamable by design,
             # so a killed recording stays playable as-is.

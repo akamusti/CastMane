@@ -294,6 +294,7 @@ class PortalRecorder:
 
     def build_cmd(self, node: int, fd: int, tmp: Path) -> list[str]:
         from ..audio import (
+            effective_gains,
             normalize_audio_mode,
             resolve_desktop_source,
             resolve_mic_source,
@@ -325,13 +326,13 @@ class PortalRecorder:
         ]
         if self.cfg.audio_enabled:
             mode = normalize_audio_mode(self.cfg.audio_mode)
+            mic_gain, desk_gain = effective_gains(self.cfg)
             if mode == "both":
                 # Two capture branches (mic + desktop monitor) mixed down to
                 # one track: ... ! mix. + ... ! mix. + mix. ! encoder ! mux.
+                # Per-source gain lives in each pulsesrc branch (OBS-style).
                 cmd += ["matroskamux", "name=mux", "!", "filesink", f"location={tmp}"]
                 cmd += ["audiomixer", "name=mix", "!"]
-                if self.cfg.audio_gain != 1.0:
-                    cmd += ["volume", f"volume={self.cfg.audio_gain}", "!"]
                 cmd += [
                     "audioconvert",
                     "!", "audioresample",
@@ -341,20 +342,23 @@ class PortalRecorder:
                     "!", "mux.",
                 ]
                 cmd += _pulsesrc_branch(
-                    resolve_mic_source(self.cfg.audio_source), "mix."
+                    resolve_mic_source(self.cfg.audio_source), "mix.",
+                    gain=mic_gain,
                 )
                 cmd += _pulsesrc_branch(
                     resolve_desktop_source(self.cfg.audio_desktop_source),
-                    "mix.",
+                    "mix.", gain=desk_gain,
                 )
             else:
                 cmd += ["matroskamux", "name=mux", "!", "filesink", f"location={tmp}"]
                 if mode == "desktop":
                     src = resolve_desktop_source(self.cfg.audio_desktop_source)
+                    gain = desk_gain
                 else:
                     src = resolve_mic_source(self.cfg.audio_source)
+                    gain = mic_gain
                 cmd += _pulsesrc_branch(
-                    src, "mux.", gain=self.cfg.audio_gain,
+                    src, "mux.", gain=gain,
                     bitrate=self.cfg.audio_bitrate_kbps * 1000,
                 )
         else:

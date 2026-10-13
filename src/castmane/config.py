@@ -75,6 +75,34 @@ def clamp_bitrate_kbps(value: int) -> int:
         return 8000
 
 
+def clamp_gain(value: float) -> float:
+    """Software gain multiplier, clamped to 0.0..5.0 (AGENTS.md: clipping risk)."""
+    try:
+        return max(0.0, min(5.0, float(value)))
+    except (TypeError, ValueError):
+        return 1.0
+
+
+#: Replay buffer bounds (seconds). 0 = off when disabled flag is False.
+REPLAY_MIN_S, REPLAY_MAX_S = 10, 600
+REPLAY_DEFAULT_S = 60
+
+
+def normalize_replay_seconds(value: int) -> int:
+    try:
+        return max(REPLAY_MIN_S, min(REPLAY_MAX_S, int(value)))
+    except (TypeError, ValueError):
+        return REPLAY_DEFAULT_S
+
+
+def normalize_shortcut(value: str, fallback: str) -> str:
+    """Clamp a shortcut string; never raises, falls back on empty/garbage."""
+    text = (value or "").strip()
+    if not text or len(text) > 32:
+        return fallback
+    return text
+
+
 @dataclass
 class AppConfig:
     output_dir: Path = Path.home() / "Videos" / "CastMane"
@@ -112,6 +140,21 @@ class AppConfig:
     # so raise it, e.g. 2.0 (~+6 dB) or 3.0 (~+9.5 dB). Stay at or
     # below 5.0 (clipping/distortion risk).
     audio_gain: float = 1.0
+    # Per-source mixer gains (OBS-style): mic and desktop are gained
+    # independently before mixing. `audio_gain` is kept as legacy master
+    # fallback for old settings files (see audio.effective_gains).
+    mic_gain: float = 1.0
+    desktop_gain: float = 1.0
+    # Replay buffer (OBS-style): keep the last N seconds on disk so the
+    # user can save a moment after it happened.
+    replay_enabled: bool = False
+    replay_seconds: int = REPLAY_DEFAULT_S
+    # Configurable shortcuts (Settings page). Defaults match the old
+    # hardcoded R / P / F (+ Space alias for record, T for replay save).
+    shortcut_record: str = "R"
+    shortcut_pause: str = "P"
+    shortcut_replay: str = "T"
+    shortcut_folder: str = "F"
     # Quality preset: "draft" (light/fast), "balanced" (default),
     # "high" (heavy), "custom" (fps/bitrate below are user-set).
     # fps affects X11 capture, bitrate affects both backends.
@@ -138,6 +181,15 @@ class AppConfig:
         self.output_format = normalize_format(self.output_format)
         self.fps = clamp_fps(self.fps)
         self.video_bitrate_kbps = clamp_bitrate_kbps(self.video_bitrate_kbps)
+        self.audio_gain = clamp_gain(self.audio_gain)
+        self.mic_gain = clamp_gain(self.mic_gain)
+        self.desktop_gain = clamp_gain(self.desktop_gain)
+        self.replay_seconds = normalize_replay_seconds(self.replay_seconds)
+        self.replay_enabled = bool(self.replay_enabled)
+        self.shortcut_record = normalize_shortcut(self.shortcut_record, "R")
+        self.shortcut_pause = normalize_shortcut(self.shortcut_pause, "P")
+        self.shortcut_replay = normalize_shortcut(self.shortcut_replay, "T")
+        self.shortcut_folder = normalize_shortcut(self.shortcut_folder, "F")
 
     def apply_quality_preset(self, name: str) -> None:
         presets = {
@@ -220,6 +272,14 @@ class AppConfig:
             "audio_source": self.audio_source,
             "audio_desktop_source": self.audio_desktop_source,
             "audio_gain": self.audio_gain,
+            "mic_gain": self.mic_gain,
+            "desktop_gain": self.desktop_gain,
+            "replay_enabled": self.replay_enabled,
+            "replay_seconds": self.replay_seconds,
+            "shortcut_record": self.shortcut_record,
+            "shortcut_pause": self.shortcut_pause,
+            "shortcut_replay": self.shortcut_replay,
+            "shortcut_folder": self.shortcut_folder,
         }
 
     def save(self, path: Path | None = None) -> None:
@@ -239,6 +299,7 @@ class AppConfig:
         if not isinstance(data, dict):
             return cls()
         try:
+            legacy_gain = float(data.get("audio_gain", 1.0))
             cfg = cls(
                 output_dir=Path(data.get("output_dir", Path.home() / "Videos" / "CastMane")),
                 output_format=normalize_format(data.get("output_format", "mp4")),
@@ -257,7 +318,21 @@ class AppConfig:
                 audio_mode=data.get("audio_mode", "mic"),
                 audio_source=data.get("audio_source", "auto"),
                 audio_desktop_source=data.get("audio_desktop_source", "auto"),
-                audio_gain=float(data.get("audio_gain", 1.0)),
+                audio_gain=legacy_gain,
+                # Old files have only audio_gain: carry it to both channels.
+                mic_gain=float(data.get("mic_gain", legacy_gain)),
+                desktop_gain=float(data.get("desktop_gain", legacy_gain)),
+                replay_enabled=bool(data.get("replay_enabled", False)),
+                replay_seconds=normalize_replay_seconds(
+                    data.get("replay_seconds", REPLAY_DEFAULT_S)),
+                shortcut_record=normalize_shortcut(
+                    data.get("shortcut_record", "R"), "R"),
+                shortcut_pause=normalize_shortcut(
+                    data.get("shortcut_pause", "P"), "P"),
+                shortcut_replay=normalize_shortcut(
+                    data.get("shortcut_replay", "T"), "T"),
+                shortcut_folder=normalize_shortcut(
+                    data.get("shortcut_folder", "F"), "F"),
                 fps=clamp_fps(data.get("fps", 30)),
                 video_bitrate_kbps=clamp_bitrate_kbps(data.get("video_bitrate_kbps", 8000)),
             )
