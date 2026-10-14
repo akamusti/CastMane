@@ -1852,7 +1852,7 @@ class MainWindow(QMainWindow):
                 self.status_lbl.setText(
                     self.t("countdown_status").format(n=self._countdown_left)
                 )
-                self.timer_lbl.setText(f"00:00:0{self._countdown_left}"[-8:])
+                self.timer_lbl.setText(self._fmt_elapsed(self._countdown_left))
                 self._countdown_timer.start()
                 return
             self._start_recording()
@@ -1868,7 +1868,7 @@ class MainWindow(QMainWindow):
         self.status_lbl.setText(
             self.t("countdown_status").format(n=self._countdown_left)
         )
-        self.timer_lbl.setText(f"00:00:0{self._countdown_left}"[-8:])
+        self.timer_lbl.setText(self._fmt_elapsed(self._countdown_left))
 
     def _start_recording(self) -> None:
         free_mb = self.cfg.output_dir_free_mb()
