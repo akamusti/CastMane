@@ -1,16 +1,11 @@
-"""Qt main window: a plain desktop utility, not a landing page.
+"""Qt main window: modern, refined desktop utility for crash-safe recording.
 
-Layout, top to bottom:
-  1. Header bar  - mark, name + subtitle, EN/TR switch, timer.
-  2. Body        - left nav rail (Capture / Audio / Region + backend note),
-                   right settings pane (stacked pages, label/control rows).
-  3. Transport   - Record (primary) + Pause.
-  4. Status bar  - state dot + message on the left, output folder on the right.
-
-Deliberately un-fancy: flat surfaces, 1px hairlines, system font, and a
-single red that only ever means "recording". No gradients, no glow, no
-pill badges with wide letter-spacing — that is the look this rewrite
-is getting away from.
+Layout:
+  1. Header bar   - Mark, branding + subtitle, live status pill, digital studio timer.
+  2. Main body    - Left navigation rail (Capture, Audio, Region, Output, Settings),
+                    Right scrollable content area with studio cards.
+  3. Transport    - Large prominent Record/Stop button + Pause/Resume + Save Replay.
+  4. Status bar   - Pulsing live status dot + message on the left, output folder on the right.
 """
 from __future__ import annotations
 
@@ -35,12 +30,12 @@ from PySide6.QtGui import (
     QFont,
     QFontMetrics,
     QIcon,
+    QKeySequence,
     QPainter,
     QPainterPath,
     QPen,
     QPixmap,
     QShortcut,
-    QKeySequence,
 )
 from PySide6.QtWidgets import (
     QAbstractButton,
@@ -67,10 +62,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .backends import create_backend, session_is_wayland
 from . import theme as theme_mod
+from .backends import create_backend, session_is_wayland
 from .config import (
-    AppConfig,
     AUTO_STOP_MAX_MIN,
     BITRATE_MAX_KBPS,
     BITRATE_MIN_KBPS,
@@ -78,28 +72,28 @@ from .config import (
     FPS_MAX,
     FPS_MIN,
     MIN_FREE_MB,
+    AppConfig,
     sanitize_prefix,
 )
-from .i18n import SUPPORTED_LANGUAGES, get as _get, normalize
+from .i18n import SUPPORTED_LANGUAGES, normalize
+from .i18n import get as _get
 from .icons import paint_icon, tray_icon
 from .theme import (
-    FONT_MONO,
     FONT_UI,
     FOOTER_H,
     HEADER_H,
-    NAV_H,
     RADIUS,
     RADIUS_LG,
     RADIUS_SM,
     SEGMENT_PAD,
-    SEGMENT_TEXT_PAD,
     SIDEBAR_W,
     logo_path,
     mark_path,
 )
 
+
 def build_stylesheet(t: dict[str, str]) -> str:
-    """Render the full QSS for one theme colour table."""
+    """Render the full modern QSS for the given theme colour table."""
     CANVAS = t["CANVAS"]
     SURFACE = t["SURFACE"]
     SURFACE_SUNKEN = t["SURFACE_SUNKEN"]
@@ -124,8 +118,11 @@ def build_stylesheet(t: dict[str, str]) -> str:
     REC_PRESSED = t["REC_PRESSED"]
     REC_TINT = t["REC_TINT"]
     REC_BORDER = t["REC_BORDER"]
+    READY = t["READY"]
+    READY_TINT = t["READY_TINT"]
     PAUSED = t["PAUSED"]
     PAUSED_TINT = t["PAUSED_TINT"]
+
     return f"""
 QMainWindow, QWidget#Root {{
     background-color: {CANVAS};
@@ -133,17 +130,43 @@ QMainWindow, QWidget#Root {{
     font-family: {FONT_UI};
     font-size: 13px;
 }}
+
 QScrollArea {{
-    background-color: {SURFACE};
+    background-color: transparent;
     border: none;
 }}
+
 QScrollArea > QWidget > QWidget {{
-    background-color: {SURFACE};
+    background-color: transparent;
 }}
+
+/* Modern sleek scrollbar */
+QScrollBar:vertical {{
+    background: transparent;
+    width: 6px;
+    margin: 4px 2px 4px 0;
+}}
+QScrollBar::handle:vertical {{
+    background: {HAIRLINE_STRONG};
+    min-height: 24px;
+    border-radius: 3px;
+}}
+QScrollBar::handle:vertical:hover {{
+    background: {TEXT_MUTED};
+}}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+    height: 0px;
+    background: none;
+}}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+    background: none;
+}}
+
 QLabel {{
     background: transparent;
 }}
-/* --- Header --- */
+
+/* --- Header Bar --- */
 QFrame#Header {{
     background-color: {SURFACE};
     border: none;
@@ -151,20 +174,73 @@ QFrame#Header {{
 }}
 QLabel#AppName {{
     color: {TEXT_MAIN};
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 700;
+    letter-spacing: -0.2px;
 }}
 QLabel#AppSub {{
     color: {TEXT_FAINT};
     font-size: 11px;
 }}
+QLabel#AppBadge {{
+    color: {TEXT_MUTED};
+    font-size: 10px;
+    font-weight: 600;
+    background-color: {SURFACE_SUNKEN};
+    border: 1px solid {HAIRLINE};
+    border-radius: 4px;
+    padding: 1px 5px;
+}}
+
+/* Digital Timer Display */
+QFrame#TimerDisplay {{
+    background-color: {SURFACE_SUNKEN};
+    border: 1px solid {HAIRLINE};
+    border-radius: 8px;
+    padding: 2px 10px;
+}}
 QLabel#Timer {{
     color: {TEXT_SOFT};
+    letter-spacing: 0.5px;
 }}
 QLabel#Timer[recording="true"] {{
     color: {REC};
+    font-weight: 700;
 }}
-/* --- Sidebar --- */
+
+/* State Pill (Header) */
+QLabel#Pill {{
+    border: 1px solid {HAIRLINE_STRONG};
+    border-radius: 12px;
+    padding: 3px 12px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    color: {READY};
+    background-color: {READY_TINT};
+}}
+QLabel#Pill[state="ready"] {{
+    color: {READY};
+    border-color: {READY};
+    background-color: {READY_TINT};
+}}
+QLabel#Pill[state="recording"] {{
+    color: {REC};
+    border-color: {REC_BORDER};
+    background-color: {REC_TINT};
+}}
+QLabel#Pill[state="paused"] {{
+    color: {PAUSED};
+    border-color: {PAUSED};
+    background-color: {PAUSED_TINT};
+}}
+QLabel#Pill[state="countdown"] {{
+    color: {PAUSED};
+    border-color: {PAUSED};
+    background-color: {PAUSED_TINT};
+}}
+
+/* --- Sidebar (Navigation Rail) --- */
 QFrame#Sidebar {{
     background-color: {CANVAS};
     border: none;
@@ -173,10 +249,11 @@ QFrame#Sidebar {{
 QPushButton#Nav {{
     background: transparent;
     border: 1px solid transparent;
-    border-radius: {RADIUS_SM}px;
-    padding: 0 8px 0 34px;
+    border-radius: {RADIUS}px;
+    padding: 0 12px 0 38px;
     color: {TEXT_MUTED};
     font-size: 13px;
+    font-weight: 500;
     text-align: left;
 }}
 QPushButton#Nav:hover {{
@@ -185,15 +262,34 @@ QPushButton#Nav:hover {{
 }}
 QPushButton#Nav:checked {{
     background-color: {SURFACE};
-    border-color: {HAIRLINE_STRONG};
+    border-color: {HAIRLINE};
     color: {TEXT_MAIN};
     font-weight: 700;
+}}
+QFrame#BackendCard {{
+    background-color: {SURFACE};
+    border: 1px solid {HAIRLINE};
+    border-radius: {RADIUS}px;
+    padding: 8px 10px;
 }}
 QLabel#SideNote {{
     color: {TEXT_FAINT};
     font-size: 11px;
+    line-height: 1.3;
 }}
-/* --- Settings pane --- */
+
+/* --- Content Cards --- */
+QFrame#Card {{
+    background-color: {SURFACE};
+    border: 1px solid {HAIRLINE};
+    border-radius: {RADIUS_LG}px;
+}}
+QLabel#SectionTitle {{
+    color: {TEXT_MAIN};
+    font-size: 13px;
+    font-weight: 700;
+    padding-bottom: 2px;
+}}
 QLabel#RowLabel {{
     color: {TEXT_SOFT};
     font-size: 12px;
@@ -202,9 +298,11 @@ QLabel#RowLabel {{
 QLabel#Hint {{
     color: {TEXT_FAINT};
     font-size: 11px;
+    line-height: 1.3;
 }}
 QLabel#Hint[error="true"] {{
     color: {REC};
+    font-weight: 600;
 }}
 QFrame#Hairline {{
     background-color: {HAIRLINE};
@@ -212,7 +310,8 @@ QFrame#Hairline {{
     max-height: 1px;
     min-height: 1px;
 }}
-/* --- Segmented control: sunken well, selected segment is plain white --- */
+
+/* --- Segmented Control --- */
 QFrame#Segment {{
     background-color: {SURFACE_SUNKEN};
     border: 1px solid {HAIRLINE};
@@ -222,12 +321,14 @@ QPushButton#Seg {{
     background: transparent;
     border: 1px solid transparent;
     border-radius: {RADIUS_SM}px;
-    padding: 6px 4px;
+    padding: 6px 10px;
     color: {TEXT_MUTED};
     font-size: 12px;
+    font-weight: 500;
 }}
 QPushButton#Seg:hover {{
     color: {TEXT_MAIN};
+    background-color: {BTN_HOVER};
 }}
 QPushButton#Seg:checked {{
     background-color: {SURFACE};
@@ -238,15 +339,17 @@ QPushButton#Seg:checked {{
 QPushButton#Seg:disabled {{
     color: {TEXT_FAINT};
 }}
-/* --- Buttons --- */
+
+/* --- Primary Record Button --- */
 QPushButton#Record {{
     background-color: {INK};
     border: 1px solid {INK};
-    border-radius: 11px;
-    padding: 13px 16px;
+    border-radius: 12px;
+    padding: 12px 24px;
     color: {PRIMARY_TEXT};
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 700;
+    letter-spacing: 0.2px;
 }}
 QPushButton#Record:hover {{
     background-color: {INK_HOVER};
@@ -259,6 +362,7 @@ QPushButton#Record:pressed {{
 QPushButton#Record[recording="true"] {{
     background-color: {REC};
     border-color: {REC};
+    color: #FFFFFF;
 }}
 QPushButton#Record[recording="true"]:hover {{
     background-color: {REC_HOVER};
@@ -268,16 +372,20 @@ QPushButton#Record[recording="true"]:pressed {{
     background-color: {REC_PRESSED};
     border-color: {REC_PRESSED};
 }}
+
+/* --- Action Buttons (Pause & Replay) --- */
 QPushButton#Pause {{
     background-color: {BTN_BG};
     border: 1px solid {BTN_BORDER};
-    border-radius: {RADIUS}px;
-    padding: 10px 12px;
+    border-radius: 10px;
+    padding: 10px 16px;
     color: {TEXT_MAIN};
     font-size: 13px;
+    font-weight: 600;
 }}
 QPushButton#Pause:hover {{
     background-color: {BTN_HOVER};
+    border-color: {HAIRLINE_STRONG};
 }}
 QPushButton#Pause:pressed {{
     background-color: {BTN_PRESSED};
@@ -287,18 +395,43 @@ QPushButton#Pause:disabled {{
     color: {BTN_DISABLED_TEXT};
     border-color: {HAIRLINE};
 }}
-/* --- Inputs --- */
+
+/* Standard push buttons */
+QPushButton {{
+    background-color: {BTN_BG};
+    border: 1px solid {BTN_BORDER};
+    border-radius: {RADIUS_SM}px;
+    padding: 6px 12px;
+    color: {TEXT_MAIN};
+    font-size: 12px;
+    font-weight: 500;
+}}
+QPushButton:hover {{
+    background-color: {BTN_HOVER};
+    border-color: {HAIRLINE_STRONG};
+}}
+QPushButton:pressed {{
+    background-color: {BTN_PRESSED};
+}}
+QPushButton:disabled {{
+    background-color: {BTN_DISABLED_BG};
+    color: {BTN_DISABLED_TEXT};
+    border-color: {HAIRLINE};
+}}
+
+/* --- Inputs (Text & SpinBox) --- */
 QLineEdit, QSpinBox {{
     background-color: {SURFACE};
     border: 1px solid {BTN_BORDER};
     border-radius: {RADIUS_SM}px;
-    padding: 6px 9px;
+    padding: 7px 10px;
     color: {TEXT_MAIN};
+    font-size: 12px;
     selection-background-color: {INK};
     selection-color: {PRIMARY_TEXT};
 }}
 QLineEdit:focus, QSpinBox:focus {{
-    border-color: {TEXT_SOFT};
+    border-color: {INK};
 }}
 QLineEdit:disabled, QSpinBox:disabled {{
     color: {BTN_DISABLED_TEXT};
@@ -308,33 +441,99 @@ QSpinBox::up-button, QSpinBox::down-button {{
     width: 0px;
     border: none;
 }}
-QSlider::groove:horizontal {{
-    height: 4px;
+
+/* --- Audio Mixer Channel Strips --- */
+QFrame#Strip {{
+    background-color: {SURFACE_SUNKEN};
+    border: 1px solid {HAIRLINE};
+    border-radius: 10px;
+}}
+QLabel#StripName {{
+    color: {TEXT_MAIN};
+    font-size: 12px;
+    font-weight: 700;
+}}
+QLabel#StripValue {{
+    color: {TEXT_SOFT};
+    font-size: 11px;
+    font-weight: 600;
+    background-color: {SURFACE};
+    border: 1px solid {HAIRLINE};
+    border-radius: 6px;
+    padding: 3px 8px;
+}}
+QSlider::groove:vertical {{
+    width: 6px;
     background: {BTN_BORDER};
     border: none;
-    border-radius: 2px;
+    border-radius: 3px;
 }}
-QSlider::handle:horizontal {{
+QSlider::handle:vertical {{
     background: {SURFACE};
-    border: 1px solid {HAIRLINE_STRONG};
-    width: 14px;
-    height: 14px;
-    margin: -6px 0;
-    border-radius: 7px;
+    border: 1.5px solid {HAIRLINE_STRONG};
+    width: 18px;
+    height: 18px;
+    margin: 0 -6px;
+    border-radius: 9px;
 }}
-QSlider::handle:horizontal:hover {{
-    border-color: {TEXT_SOFT};
+QSlider::handle:vertical:hover {{
+    border-color: {INK};
+    background: {SURFACE};
 }}
-QSlider::handle:horizontal:disabled {{
+QSlider::handle:vertical:disabled {{
     border-color: {BTN_DISABLED_TEXT};
     background: {BTN_DISABLED_BG};
 }}
-/* --- Transport + status bar --- */
+
+/* Horizontal slider */
+QSlider::groove:horizontal {{
+    height: 6px;
+    background: {BTN_BORDER};
+    border: none;
+    border-radius: 3px;
+}}
+QSlider::handle:horizontal {{
+    background: {SURFACE};
+    border: 1.5px solid {HAIRLINE_STRONG};
+    width: 18px;
+    height: 18px;
+    margin: -6px 0;
+    border-radius: 9px;
+}}
+QSlider::handle:horizontal:hover {{
+    border-color: {INK};
+}}
+
+/* --- Recent Recordings List --- */
+QListWidget {{
+    background-color: {SURFACE};
+    border: 1px solid {HAIRLINE};
+    border-radius: {RADIUS}px;
+    padding: 4px;
+    color: {TEXT_MAIN};
+    outline: none;
+}}
+QListWidget::item {{
+    padding: 8px 10px;
+    border-radius: {RADIUS_SM}px;
+    margin: 1px 0;
+}}
+QListWidget::item:hover {{
+    background-color: {BTN_HOVER};
+}}
+QListWidget::item:selected {{
+    background-color: {INK};
+    color: {PRIMARY_TEXT};
+}}
+
+/* --- Transport Bar --- */
 QFrame#Transport {{
     background-color: {SURFACE};
     border: none;
     border-top: 1px solid {HAIRLINE};
 }}
+
+/* --- Status Bar --- */
 QFrame#StatusBar {{
     background-color: {CANVAS};
     border: none;
@@ -346,6 +545,7 @@ QLabel#StatusText {{
 }}
 QLabel#StatusText[error="true"] {{
     color: {REC};
+    font-weight: 600;
 }}
 QLabel#OutPath {{
     color: {TEXT_FAINT};
@@ -361,107 +561,43 @@ QPushButton#FolderBtn:hover {{
     background-color: {BTN_HOVER};
     border-color: {HAIRLINE};
 }}
-/* --- Studio cards --- */
-QFrame#Card {{
-    background-color: {SURFACE};
-    border: 1px solid {HAIRLINE};
-    border-radius: 10px;
-}}
-QLabel#SectionTitle {{
-    color: {TEXT_MUTED};
-    font-size: 11px;
-    font-weight: 700;
-}}
-/* --- State pill (header) --- */
-QLabel#Pill {{
-    border: 1px solid {HAIRLINE_STRONG};
-    border-radius: 9px;
-    padding: 3px 10px;
-    font-size: 11px;
-    font-weight: 700;
-    color: {TEXT_MUTED};
-    background-color: {SURFACE_SUNKEN};
-}}
-QLabel#Pill[state="recording"] {{
-    color: {REC};
-    border-color: {REC_BORDER};
-    background-color: {REC_TINT};
-}}
-QLabel#Pill[state="paused"] {{
-    color: {PAUSED};
-    border-color: {HAIRLINE_STRONG};
-    background-color: {PAUSED_TINT};
-}}
-/* --- Mixer channel strips --- */
-QFrame#Strip {{
-    background-color: {SURFACE_SUNKEN};
-    border: 1px solid {HAIRLINE};
-    border-radius: 8px;
-}}
-QLabel#StripName {{
-    color: {TEXT_MAIN};
-    font-size: 12px;
-    font-weight: 700;
-}}
-QLabel#StripValue {{
-    color: {TEXT_SOFT};
-    font-size: 11px;
-}}
-QSlider::groove:vertical {{
-    width: 4px;
-    background: {BTN_BORDER};
-    border: none;
-    border-radius: 2px;
-}}
-QSlider::handle:vertical {{
-    background: {SURFACE};
-    border: 1px solid {HAIRLINE_STRONG};
-    width: 14px;
-    height: 14px;
-    margin: 0 -6px;
-    border-radius: 7px;
-}}
+
+/* Tooltip */
 QToolTip {{
     background-color: {SURFACE};
     color: {TEXT_MAIN};
     border: 1px solid {HAIRLINE_STRONG};
-    padding: 4px 7px;
+    border-radius: 6px;
+    padding: 5px 8px;
+    font-size: 11px;
 }}
 """
 
 
 def _active_theme(widget: QWidget) -> dict[str, str]:
-    """Colour table of the window this widget lives in.
-
-    Paint code goes through here so a runtime theme switch repaints
-    every custom-drawn control without restarting the app.
-    """
+    """Colour table of the window this widget lives in."""
     win = widget.window()
     t = getattr(win, "theme", None)
     if isinstance(t, dict) and "CANVAS" in t:
         return t
     return theme_mod.get_theme(theme_mod.DEFAULT_THEME)
 
+
 LANGUAGE_LABELS = {"en": "EN", "tr": "TR"}
 
 
 def _repolish(widget: QWidget) -> None:
-    """Re-evaluate the stylesheet after a dynamic property changed."""
+    """Re-evaluate stylesheet after a dynamic property changed."""
     widget.style().unpolish(widget)
     widget.style().polish(widget)
     widget.update()
 
 
 class MarkTile(QWidget):
-    """Header logo: bare ink mark on light themes, white tile on dark ones.
+    """Header logo tile with smooth adaptive background."""
 
-    The bundled mark is dark ink on transparency, so it vanishes on
-    dark headers. The tile keeps the original asset untouched and
-    adapts via the live theme (no per-theme artwork to maintain).
-    """
-
-    TILE = 34
-    GLYPH = 24
+    TILE = 36
+    GLYPH = 26
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -471,13 +607,17 @@ class MarkTile(QWidget):
 
     def paintEvent(self, _event) -> None:
         p = QPainter(self)
-        p.setRenderHints(
-            QPainter.Antialiasing | QPainter.SmoothPixmapTransform
-        )
-        if theme_mod.surface_is_dark(_active_theme(self)):
+        p.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform)
+        t = _active_theme(self)
+        if theme_mod.surface_is_dark(t):
             p.setPen(Qt.NoPen)
             p.setBrush(QColor("#FFFFFF"))
             p.drawRoundedRect(self.rect(), 8, 8)
+        else:
+            p.setPen(QPen(QColor(t["HAIRLINE"]), 1.0))
+            p.setBrush(QColor(t["SURFACE_SUNKEN"]))
+            p.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), 8, 8)
+
         if not self._pix.isNull():
             side = float(self.GLYPH)
             x = (self.width() - side) / 2.0
@@ -486,27 +626,27 @@ class MarkTile(QWidget):
 
 
 class StatusDot(QWidget):
-    """A 10px state dot. Colour carries the state; text stays plain."""
+    """A 10px state dot with pulsing support during recording."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setFixedSize(10, 10)
+        self.setFixedSize(12, 12)
         self._color = QColor(theme_mod.READY)
 
     def set_color(self, color: str) -> None:
         self._color = QColor(color)
         self.update()
 
-    def paintEvent(self, _event) -> None:  # noqa: N802
+    def paintEvent(self, _event) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         p.setPen(Qt.NoPen)
         p.setBrush(self._color)
-        p.drawEllipse(self.rect())
+        p.drawEllipse(QRectF(1, 1, 10, 10))
 
 
 class Switch(QAbstractButton):
-    """Plain sliding toggle: grey when off, ink when on."""
+    """Modern smooth sliding toggle switch."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -515,7 +655,7 @@ class Switch(QAbstractButton):
         self.setFixedSize(44, 24)
         self._pos = 1.0 if self.isChecked() else 0.0
         self._anim = QVariantAnimation(self)
-        self._anim.setDuration(140)
+        self._anim.setDuration(160)
         self._anim.setEasingCurve(QEasingCurve.OutCubic)
         self._anim.valueChanged.connect(self._apply_pos)
         self.toggled.connect(self._animate_to)
@@ -530,16 +670,15 @@ class Switch(QAbstractButton):
         self._pos = float(value)
         self.update()
 
-    def setChecked(self, checked: bool) -> None:  # noqa: N802
+    def setChecked(self, checked: bool) -> None:
         super().setChecked(checked)
-        # Constructor runs before signals exist; keep paint in sync.
         self._pos = 1.0 if checked else 0.0
         self.update()
 
-    def sizeHint(self) -> QSize:  # noqa: N802
+    def sizeHint(self) -> QSize:
         return QSize(44, 24)
 
-    def paintEvent(self, _event) -> None:  # noqa: N802
+    def paintEvent(self, _event) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         w, h = float(self.width()), float(self.height())
@@ -579,18 +718,13 @@ class Switch(QAbstractButton):
         p.setPen(Qt.NoPen)
         p.setBrush(_mix(knob_off, knob_on, self._pos))
         p.drawEllipse(knob_center, knob / 2, knob / 2)
-        # Hairline edge so a light knob still reads on a light track.
         p.setBrush(Qt.NoBrush)
         p.setPen(QPen(border, 1.0))
         p.drawEllipse(knob_center, knob / 2 - 0.5, knob / 2 - 0.5)
 
 
 class SegmentedControl(QFrame):
-    """Mutually exclusive options in a sunken well.
-
-    The checked segment is plain white with a hairline edge — the same
-    idiom GNOME/macOS settings use — instead of a coloured fill.
-    """
+    """Mutually exclusive options in a sleek sunken track."""
 
     changed = Signal(str)
 
@@ -640,16 +774,16 @@ class SegmentedControl(QFrame):
 
 
 class NavButton(QPushButton):
-    """One sidebar row: vector icon on the left, label after it."""
+    """One sidebar navigation item with an icon and active accent indicator."""
 
-    ICON_W = 34  # matches the QSS padding-left
+    ICON_W = 38
 
     def __init__(self, icon_name: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("Nav")
         self.setCheckable(True)
         self.setCursor(Qt.PointingHandCursor)
-        self.setFixedHeight(NAV_H)
+        self.setFixedHeight(40)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._icon = icon_name
 
@@ -659,29 +793,39 @@ class NavButton(QPushButton):
             return QColor(t["TEXT_FAINT"])
         if self.isChecked():
             return QColor(t["TEXT_MAIN"])
-        return QColor(t["TEXT_MUTED"]) if not self.underMouse() else QColor(t["TEXT_MAIN"])
+        return QColor(t["TEXT_MAIN"]) if self.underMouse() else QColor(t["TEXT_MUTED"])
 
-    def paintEvent(self, event) -> None:  # noqa: N802
+    def paintEvent(self, event) -> None:
         super().paintEvent(event)
         p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        t = _active_theme(self)
+
+        # Draw left accent bar when active
+        if self.isChecked():
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(t["INK"]))
+            p.drawRoundedRect(QRectF(3, 8, 3, self.height() - 16), 1.5, 1.5)
+
+        # Draw icon
         side = 16.0
-        x = (self.ICON_W - side) / 2.0
+        x = 12.0
         y = (self.height() - side) / 2.0
         paint_icon(p, self._icon, QRectF(x, y, side, side), self._ink())
 
-    def enterEvent(self, event) -> None:  # noqa: N802
+    def enterEvent(self, event) -> None:
         super().enterEvent(event)
         self.update()
 
-    def leaveEvent(self, event) -> None:  # noqa: N802
+    def leaveEvent(self, event) -> None:
         super().leaveEvent(event)
         self.update()
 
 
 class RecordButton(QPushButton):
-    """Primary transport button: red dot when idle, square when recording."""
+    """Primary transport button: red dot when idle, stop square when recording."""
 
-    GLYPH_GAP = 10.0
+    GLYPH_GAP = 12.0
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -689,23 +833,23 @@ class RecordButton(QPushButton):
         self.setCursor(Qt.PointingHandCursor)
         self.setProperty("recording", False)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.setMinimumHeight(42)
+        self.setMinimumHeight(48)
 
-    def paintEvent(self, event) -> None:  # noqa: N802
+    def paintEvent(self, event) -> None:
         super().paintEvent(event)
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         t = _active_theme(self)
         metrics = QFontMetrics(self.font())
         text_w = metrics.horizontalAdvance(self.text())
-        gx = self.width() / 2.0 - text_w / 2.0 - self.GLYPH_GAP - 7.0
+        gx = self.width() / 2.0 - text_w / 2.0 - self.GLYPH_GAP - 6.0
         gy = self.height() / 2.0 - 5.5
         if self.property("recording"):
             path = QPainterPath()
             path.addRoundedRect(QRectF(gx, gy, 11, 11), 2, 2)
-            p.fillPath(path, QColor(t["PRIMARY_TEXT"]))
+            p.fillPath(path, QColor("#FFFFFF"))
         else:
-            paint_icon(p, "dot", QRectF(gx, gy, 11, 11), QColor(t["REC"]))
+            paint_icon(p, "dot", QRectF(gx, gy, 12, 12), QColor(t["REC"]))
 
     def set_recording(self, recording: bool) -> None:
         self.setProperty("recording", recording)
@@ -713,8 +857,8 @@ class RecordButton(QPushButton):
 
 
 class MainWindow(QMainWindow):
-    LABEL_COL = 148
-    OUT_PATH_PX = 240
+    LABEL_COL = 152
+    OUT_PATH_PX = 250
 
     def __init__(self, cfg: AppConfig | None = None) -> None:
         super().__init__()
@@ -725,8 +869,8 @@ class MainWindow(QMainWindow):
         self.rec = create_backend(self.cfg)
         self._card_labels: list[QLabel] = []
         self.setWindowTitle("CastMane")
-        self.resize(920, 660)
-        self.setMinimumSize(760, 560)
+        self.resize(940, 670)
+        self.setMinimumSize(780, 570)
         self.setStyleSheet(build_stylesheet(self.theme))
         icon_path = logo_path()
         if icon_path:
@@ -754,8 +898,7 @@ class MainWindow(QMainWindow):
         self.timer.setInterval(500)
         self.timer.timeout.connect(self.tick)
 
-        # Countdown (3-2-1) + auto-stop state. Countdown ticks once per
-        # second on this timer; auto-stop is a one-shot wall-clock timer.
+        # Countdown & auto-stop timers
         self._countdown_left = 0
         self._countdown_timer = QTimer(self)
         self._countdown_timer.setInterval(1000)
@@ -763,10 +906,7 @@ class MainWindow(QMainWindow):
         self._autostop_timer = QTimer(self)
         self._autostop_timer.setSingleShot(True)
         self._autostop_timer.timeout.connect(self._auto_stop_timeout)
-        # Remaining auto-stop time (ms), so pause freezes the deadline
-        # instead of letting it fire (and get skipped) mid-pause.
         self._autostop_remaining_ms = 0
-        # Throttle the live disk-space guard: check every ~5s, not every tick.
         self._disk_check_counter = 0
         self._quit_requested = False
         self._setup_shortcuts()
@@ -776,18 +916,17 @@ class MainWindow(QMainWindow):
         self._retranslate()
         self._refresh_custom_enabled()
         self._refresh_idle_status()
-        # Offer to restore leftover `.part` files once the window is up.
         QTimer.singleShot(0, self._maybe_offer_recovery)
 
-    # --- Construction ---
+    # --- UI Layout Construction ---
 
     def _build_header(self) -> QFrame:
         bar = QFrame()
         bar.setObjectName("Header")
-        bar.setFixedHeight(HEADER_H)
+        bar.setFixedHeight(HEADER_H + 4)
         row = QHBoxLayout(bar)
-        row.setContentsMargins(14, 0, 14, 0)
-        row.setSpacing(10)
+        row.setContentsMargins(16, 0, 16, 0)
+        row.setSpacing(12)
 
         mark = MarkTile()
         self.header_mark = mark
@@ -795,52 +934,72 @@ class MainWindow(QMainWindow):
 
         text = QVBoxLayout()
         text.setContentsMargins(0, 0, 0, 0)
-        text.setSpacing(0)
+        text.setSpacing(1)
+
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(8)
+
         name = QLabel("CastMane")
         name.setObjectName("AppName")
+        title_row.addWidget(name)
+
+        badge = QLabel("v0.9.3")
+        badge.setObjectName("AppBadge")
+        title_row.addWidget(badge)
+        title_row.addStretch(1)
+
         self.subtitle_lbl = QLabel()
         self.subtitle_lbl.setObjectName("AppSub")
-        text.addWidget(name)
+
+        text.addLayout(title_row)
         text.addWidget(self.subtitle_lbl)
         row.addLayout(text, 1)
 
+        # Live State Pill
         self.state_pill = QLabel("READY")
         self.state_pill.setObjectName("Pill")
         self.state_pill.setProperty("state", "ready")
         self.state_pill.setAlignment(Qt.AlignCenter)
         row.addWidget(self.state_pill)
 
+        # Digital Timer Capsule
+        timer_box = QFrame()
+        timer_box.setObjectName("TimerDisplay")
+        timer_layout = QHBoxLayout(timer_box)
+        timer_layout.setContentsMargins(8, 4, 8, 4)
+
         self.timer_lbl = QLabel("00:00:00")
         self.timer_lbl.setObjectName("Timer")
-        self.timer_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.timer_lbl.setAlignment(Qt.AlignCenter)
         self.timer_lbl.setProperty("recording", False)
         font = QFont()
-        font.setFamilies(
-            [
-                "JetBrains Mono",
-                "DejaVu Sans Mono",
-                "Noto Sans Mono",
-                "Liberation Mono",
-                "monospace",
-            ]
-        )
+        font.setFamilies([
+            "JetBrains Mono",
+            "DejaVu Sans Mono",
+            "Noto Sans Mono",
+            "Liberation Mono",
+            "monospace",
+        ])
         font.setStyleHint(QFont.Monospace)
-        font.setPixelSize(20)
+        font.setPixelSize(18)
         font.setWeight(QFont.DemiBold)
         self.timer_lbl.setFont(font)
         self.timer_lbl.setFixedWidth(
-            QFontMetrics(font).horizontalAdvance("00:00:00") + 4
+            QFontMetrics(font).horizontalAdvance("00:00:00") + 10
         )
-        row.addWidget(self.timer_lbl)
+        timer_layout.addWidget(self.timer_lbl)
+        row.addWidget(timer_box)
+
         return bar
 
     def _build_sidebar(self) -> QFrame:
         side = QFrame()
         side.setObjectName("Sidebar")
-        side.setFixedWidth(SIDEBAR_W)
+        side.setFixedWidth(SIDEBAR_W + 12)
         layout = QVBoxLayout(side)
-        layout.setContentsMargins(10, 12, 10, 12)
-        layout.setSpacing(2)
+        layout.setContentsMargins(10, 14, 10, 14)
+        layout.setSpacing(4)
 
         self.tab_group = QButtonGroup(self)
         self.tab_group.setExclusive(True)
@@ -861,10 +1020,18 @@ class MainWindow(QMainWindow):
         self.tab_buttons[0].setChecked(True)
 
         layout.addStretch(1)
+
+        # Backend Info Card at the bottom of the sidebar
+        backend_box = QFrame()
+        backend_box.setObjectName("BackendCard")
+        b_layout = QVBoxLayout(backend_box)
+        b_layout.setContentsMargins(8, 6, 8, 6)
         self.backend_lbl = QLabel()
         self.backend_lbl.setObjectName("SideNote")
         self.backend_lbl.setWordWrap(True)
-        layout.addWidget(self.backend_lbl)
+        b_layout.addWidget(self.backend_lbl)
+        layout.addWidget(backend_box)
+
         return side
 
     def _build_pane(self) -> QWidget:
@@ -874,7 +1041,7 @@ class MainWindow(QMainWindow):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         holder = QWidget()
         layout = QVBoxLayout(holder)
-        layout.setContentsMargins(22, 20, 26, 20)
+        layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(0)
 
         self.pages = QStackedWidget()
@@ -889,34 +1056,34 @@ class MainWindow(QMainWindow):
         return scroll
 
     def _card(self, i18n_key: str) -> tuple[QFrame, QVBoxLayout]:
-        """One studio card: titled SURFACE panel holding settings rows."""
+        """Studio card container with modern styling."""
         frame = QFrame()
         frame.setObjectName("Card")
         outer = QVBoxLayout(frame)
-        outer.setContentsMargins(16, 12, 16, 12)
-        outer.setSpacing(4)
+        outer.setContentsMargins(18, 14, 18, 14)
+        outer.setSpacing(8)
         title = QLabel()
         title.setObjectName("SectionTitle")
         title.setProperty("i18n", i18n_key)
         outer.addWidget(title)
         inner = QVBoxLayout()
         inner.setContentsMargins(0, 0, 0, 0)
-        inner.setSpacing(0)
+        inner.setSpacing(2)
         outer.addLayout(inner)
         self._card_labels.append(title)
         return frame, inner
 
     @staticmethod
     def _strip(name: QLabel, slider: QSlider, value: QLabel) -> QFrame:
-        """One mixer channel strip: name, vertical fader, % readout."""
+        """One mixer channel strip with fader and level readout."""
         frame = QFrame()
         frame.setObjectName("Strip")
         box = QVBoxLayout(frame)
-        box.setContentsMargins(10, 10, 10, 10)
-        box.setSpacing(6)
+        box.setContentsMargins(14, 12, 14, 12)
+        box.setSpacing(8)
         box.addWidget(name)
         fader_row = QHBoxLayout()
-        fader_row.setContentsMargins(0, 0, 0, 0)
+        fader_row.setContentsMargins(0, 4, 0, 4)
         fader_row.addStretch(1)
         fader_row.addWidget(slider)
         fader_row.addStretch(1)
@@ -930,14 +1097,14 @@ class MainWindow(QMainWindow):
         control: QWidget,
         hint: QLabel | None = None,
     ) -> QWidget:
-        """One settings row: fixed label column, control column, hint below."""
+        """Settings row with fixed label column and flexible control column."""
         box = QWidget()
         layout = QVBoxLayout(box)
-        layout.setContentsMargins(0, 10, 0, 10)
-        layout.setSpacing(6)
+        layout.setContentsMargins(0, 8, 0, 8)
+        layout.setSpacing(4)
         top = QHBoxLayout()
         top.setContentsMargins(0, 0, 0, 0)
-        top.setSpacing(12)
+        top.setSpacing(14)
         label.setFixedWidth(self.LABEL_COL)
         label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         top.addWidget(label)
@@ -949,7 +1116,7 @@ class MainWindow(QMainWindow):
             indent_layout = QHBoxLayout(indent)
             indent_layout.setContentsMargins(0, 0, 0, 0)
             spacer = QWidget()
-            spacer.setFixedWidth(self.LABEL_COL + 12)
+            spacer.setFixedWidth(self.LABEL_COL + 14)
             indent_layout.addWidget(spacer)
             indent_layout.addWidget(hint, 1)
             layout.addWidget(indent)
@@ -965,14 +1132,13 @@ class MainWindow(QMainWindow):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
+        layout.setSpacing(14)
+
         video_card, video = self._card("card_video")
 
         self.lbl_source = QLabel()
         self.lbl_source.setObjectName("RowLabel")
-        self.mode_seg = SegmentedControl(
-            [("", "fullscreen"), ("", "window"), ("", "ask")]
-        )
+        self.mode_seg = SegmentedControl([("", "fullscreen"), ("", "window"), ("", "ask")])
         self.mode_seg.set_current_data(self.cfg.capture_mode)
         self.mode_seg.changed.connect(self._on_mode_changed)
         self.hint_mode = QLabel()
@@ -981,39 +1147,51 @@ class MainWindow(QMainWindow):
 
         self.lbl_quality = QLabel()
         self.lbl_quality.setObjectName("RowLabel")
-        self.quality_seg = SegmentedControl(
-            [("", "draft"), ("", "balanced"), ("", "high"), ("", "custom")]
-        )
+        self.quality_seg = SegmentedControl([
+            ("", "draft"),
+            ("", "balanced"),
+            ("", "high"),
+            ("", "custom"),
+        ])
         self.quality_seg.set_current_data(self.cfg.quality_preset)
         self.quality_seg.changed.connect(self._on_quality_changed)
         self.hint_quality = QLabel()
         self.hint_quality.setObjectName("Hint")
-        video.addWidget(
-            self._row(self.lbl_quality, self.quality_seg, self.hint_quality)
-        )
+        video.addWidget(self._row(self.lbl_quality, self.quality_seg, self.hint_quality))
 
         self.lbl_fps = QLabel()
         self.lbl_fps.setObjectName("RowLabel")
+        fps_wrap = QWidget()
+        fps_row = QHBoxLayout(fps_wrap)
+        fps_row.setContentsMargins(0, 0, 0, 0)
         self.fps_spin = QSpinBox()
         self.fps_spin.setRange(FPS_MIN, FPS_MAX)
-        self.fps_spin.setFixedWidth(110)
+        self.fps_spin.setFixedWidth(120)
         self.fps_spin.setValue(self.cfg.fps)
         self.fps_spin.valueChanged.connect(self._on_fps_changed)
-        video.addWidget(self._row(self.lbl_fps, self.fps_spin))
+        fps_row.addWidget(self.fps_spin)
+        fps_row.addStretch(1)
+        video.addWidget(self._row(self.lbl_fps, fps_wrap))
 
         self.lbl_bitrate = QLabel()
         self.lbl_bitrate.setObjectName("RowLabel")
+        br_wrap = QWidget()
+        br_row = QHBoxLayout(br_wrap)
+        br_row.setContentsMargins(0, 0, 0, 0)
         self.br_spin = QSpinBox()
         self.br_spin.setRange(BITRATE_MIN_KBPS, BITRATE_MAX_KBPS)
         self.br_spin.setSingleStep(1000)
         self.br_spin.setSuffix(" kbps")
-        self.br_spin.setFixedWidth(170)
+        self.br_spin.setFixedWidth(180)
         self.br_spin.setValue(self.cfg.video_bitrate_kbps)
         self.br_spin.valueChanged.connect(self._on_bitrate_changed)
-        video.addWidget(self._row(self.lbl_bitrate, self.br_spin))
+        br_row.addWidget(self.br_spin)
+        br_row.addStretch(1)
+        video.addWidget(self._row(self.lbl_bitrate, br_wrap))
         layout.addWidget(video_card)
 
         auto_card, auto = self._card("card_automation")
+
         self.lbl_cursor = QLabel()
         self.lbl_cursor.setObjectName("RowLabel")
         cursor_wrap = QWidget()
@@ -1030,16 +1208,15 @@ class MainWindow(QMainWindow):
 
         self.lbl_countdown = QLabel()
         self.lbl_countdown.setObjectName("RowLabel")
-        self.countdown_seg = SegmentedControl(
-            [(self.t("countdown_off") if v == 0 else f"{v}s", str(v)) for v in COUNTDOWN_CHOICES]
-        )
+        self.countdown_seg = SegmentedControl([
+            (self.t("countdown_off") if v == 0 else f"{v}s", str(v))
+            for v in COUNTDOWN_CHOICES
+        ])
         self.countdown_seg.set_current_data(str(self.cfg.countdown_s))
         self.countdown_seg.changed.connect(self._on_countdown_changed)
         self.hint_countdown = QLabel()
         self.hint_countdown.setObjectName("Hint")
-        auto.addWidget(
-            self._row(self.lbl_countdown, self.countdown_seg, self.hint_countdown)
-        )
+        auto.addWidget(self._row(self.lbl_countdown, self.countdown_seg, self.hint_countdown))
 
         self.lbl_autostop = QLabel()
         self.lbl_autostop.setObjectName("RowLabel")
@@ -1058,9 +1235,7 @@ class MainWindow(QMainWindow):
         autostop_row.addStretch(1)
         self.hint_autostop = QLabel()
         self.hint_autostop.setObjectName("Hint")
-        auto.addWidget(
-            self._row(self.lbl_autostop, autostop_wrap, self.hint_autostop)
-        )
+        auto.addWidget(self._row(self.lbl_autostop, autostop_wrap, self.hint_autostop))
 
         self.lbl_replay = QLabel()
         self.lbl_replay.setObjectName("RowLabel")
@@ -1083,10 +1258,9 @@ class MainWindow(QMainWindow):
         replay_row.addStretch(1)
         self.hint_replay = QLabel()
         self.hint_replay.setObjectName("Hint")
-        auto.addWidget(
-            self._row(self.lbl_replay, replay_wrap, self.hint_replay)
-        )
+        auto.addWidget(self._row(self.lbl_replay, replay_wrap, self.hint_replay))
         layout.addWidget(auto_card)
+
         layout.addStretch(1)
         return page
 
@@ -1094,14 +1268,15 @@ class MainWindow(QMainWindow):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
+        layout.setSpacing(14)
+
         mixer_card, mixer = self._card("card_mixer")
 
         self.mic_gain_slider = QSlider(Qt.Vertical)
         self.mic_gain_slider.setRange(0, 500)
         self.mic_gain_slider.setSingleStep(10)
         self.mic_gain_slider.setPageStep(50)
-        self.mic_gain_slider.setMinimumHeight(130)
+        self.mic_gain_slider.setMinimumHeight(140)
         self.mic_gain_slider.setValue(round(self.cfg.mic_gain * 100))
         self.mic_gain_slider.valueChanged.connect(self._on_mic_gain_changed)
         self.mic_gain_value = QLabel()
@@ -1112,7 +1287,7 @@ class MainWindow(QMainWindow):
         self.desk_gain_slider.setRange(0, 500)
         self.desk_gain_slider.setSingleStep(10)
         self.desk_gain_slider.setPageStep(50)
-        self.desk_gain_slider.setMinimumHeight(130)
+        self.desk_gain_slider.setMinimumHeight(140)
         self.desk_gain_slider.setValue(round(self.cfg.desktop_gain * 100))
         self.desk_gain_slider.valueChanged.connect(self._on_desk_gain_changed)
         self.desk_gain_value = QLabel()
@@ -1125,24 +1300,26 @@ class MainWindow(QMainWindow):
         self.lbl_desk_gain = QLabel()
         self.lbl_desk_gain.setObjectName("StripName")
         self.lbl_desk_gain.setAlignment(Qt.AlignCenter)
+
         strips = QHBoxLayout()
-        strips.setContentsMargins(0, 4, 0, 4)
-        strips.setSpacing(12)
-        strips.addWidget(self._strip(self.lbl_mic_gain, self.mic_gain_slider,
-                                     self.mic_gain_value), 1)
-        strips.addWidget(self._strip(self.lbl_desk_gain, self.desk_gain_slider,
-                                     self.desk_gain_value), 1)
+        strips.setContentsMargins(0, 6, 0, 6)
+        strips.setSpacing(16)
+        strips.addWidget(self._strip(self.lbl_mic_gain, self.mic_gain_slider, self.mic_gain_value), 1)
+        strips.addWidget(self._strip(self.lbl_desk_gain, self.desk_gain_slider, self.desk_gain_value), 1)
         mixer.addLayout(strips)
+
         self.hint_mixer = QLabel()
         self.hint_mixer.setObjectName("Hint")
         self.hint_mixer.setWordWrap(True)
         mixer.addWidget(self.hint_mixer)
         layout.addWidget(mixer_card)
-        # Compat alias: old code/tests touched `gain_slider`.
+
+        # Compatibility aliases
         self.gain_slider = self.mic_gain_slider
         self.gain_value = self.mic_gain_value
 
         src_card, src = self._card("card_sources")
+
         self.audio_lbl = QLabel()
         self.audio_lbl.setObjectName("RowLabel")
         audio_wrap = QWidget()
@@ -1153,40 +1330,43 @@ class MainWindow(QMainWindow):
         self.audio_sw.toggled.connect(self._on_audio_toggled)
         audio_row.addWidget(self.audio_sw)
         audio_row.addStretch(1)
-        src.addWidget(self._row(self.audio_lbl, audio_wrap))
+        self.hint_audio = QLabel()
+        self.hint_audio.setObjectName("Hint")
+        src.addWidget(self._row(self.audio_lbl, audio_wrap, self.hint_audio))
 
         self.lbl_audio_mode = QLabel()
         self.lbl_audio_mode.setObjectName("RowLabel")
-        self.audio_mode_seg = SegmentedControl(
-            [("", "mic"), ("", "desktop"), ("", "both")]
-        )
+        self.audio_mode_seg = SegmentedControl([
+            ("", "mic"),
+            ("", "desktop"),
+            ("", "both"),
+        ])
         self.audio_mode_seg.set_current_data(self.cfg.audio_mode)
         self.audio_mode_seg.changed.connect(self._on_audio_mode_changed)
         self.hint_audio_mode = QLabel()
         self.hint_audio_mode.setObjectName("Hint")
-        src.addWidget(
-            self._row(self.lbl_audio_mode, self.audio_mode_seg, self.hint_audio_mode)
-        )
+        src.addWidget(self._row(self.lbl_audio_mode, self.audio_mode_seg, self.hint_audio_mode))
 
         self.lbl_source_name = QLabel()
         self.lbl_source_name.setObjectName("RowLabel")
         self.audio_source_edit = QLineEdit(self.cfg.audio_source)
         self.audio_source_edit.setPlaceholderText("auto")
         self.audio_source_edit.textChanged.connect(self._on_audio_source_changed)
-        self.hint_audio = QLabel()
-        self.hint_audio.setObjectName("Hint")
-        src.addWidget(
-            self._row(self.lbl_source_name, self.audio_source_edit, self.hint_audio)
-        )
+        self.source_edit = self.audio_source_edit
+        self.hint_source = QLabel()
+        self.hint_source.setObjectName("Hint")
+        src.addWidget(self._row(self.lbl_source_name, self.audio_source_edit, self.hint_source))
 
         self.lbl_desktop_source_name = QLabel()
         self.lbl_desktop_source_name.setObjectName("RowLabel")
         self.audio_desktop_edit = QLineEdit(self.cfg.audio_desktop_source)
         self.audio_desktop_edit.setPlaceholderText("auto")
         self.audio_desktop_edit.textChanged.connect(self._on_audio_desktop_changed)
-        src.addWidget(
-            self._row(self.lbl_desktop_source_name, self.audio_desktop_edit)
-        )
+        self.desktop_source_edit = self.audio_desktop_edit
+        self.hint_desktop = QLabel()
+        self.hint_desktop.setObjectName("Hint")
+        src.addWidget(self._row(self.lbl_desktop_source_name, self.audio_desktop_edit, self.hint_desktop))
+
         layout.addWidget(src_card)
         layout.addStretch(1)
         return page
@@ -1195,7 +1375,8 @@ class MainWindow(QMainWindow):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
+        layout.setSpacing(14)
+
         card, body = self._card("label_region")
 
         self.lbl_region = QLabel()
@@ -1203,17 +1384,15 @@ class MainWindow(QMainWindow):
         grid_wrap = QWidget()
         grid = QGridLayout(grid_wrap)
         grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(10)
+        grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(10)
         self.region_spins: dict[str, QSpinBox] = {}
-        for i, (key, value) in enumerate(
-            (
-                ("x", self.cfg.region_x),
-                ("y", self.cfg.region_y),
-                ("w", self.cfg.region_w),
-                ("h", self.cfg.region_h),
-            )
-        ):
+        for i, (key, value) in enumerate((
+            ("x", self.cfg.region_x),
+            ("y", self.cfg.region_y),
+            ("w", self.cfg.region_w),
+            ("h", self.cfg.region_h),
+        )):
             spin = QSpinBox()
             spin.setPrefix(f"{key.upper()}  ")
             spin.setRange(0, 10000)
@@ -1223,18 +1402,56 @@ class MainWindow(QMainWindow):
             spin.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             self.region_spins[key] = spin
             grid.addWidget(spin, i // 2, i % 2)
+
+        # Quick preset buttons (1080p, 720p, Reset)
+        preset_row = QHBoxLayout()
+        preset_row.setContentsMargins(0, 4, 0, 0)
+        preset_row.setSpacing(8)
+
+        btn_1080 = QPushButton("1080p (1920×1080)")
+        btn_1080.setCursor(Qt.PointingHandCursor)
+        btn_1080.clicked.connect(lambda: self._apply_region_preset(0, 0, 1920, 1080))
+        preset_row.addWidget(btn_1080)
+
+        btn_720 = QPushButton("720p (1280×720)")
+        btn_720.setCursor(Qt.PointingHandCursor)
+        btn_720.clicked.connect(lambda: self._apply_region_preset(0, 0, 1280, 720))
+        preset_row.addWidget(btn_720)
+
+        btn_reset = QPushButton("Full / 0")
+        btn_reset.setCursor(Qt.PointingHandCursor)
+        btn_reset.clicked.connect(lambda: self._apply_region_preset(0, 0, 0, 0))
+        preset_row.addWidget(btn_reset)
+        preset_row.addStretch(1)
+
+        body.addWidget(self._row(self.lbl_region, grid_wrap))
+        body.addLayout(preset_row)
+
         self.hint_region = QLabel()
         self.hint_region.setObjectName("Hint")
-        body.addWidget(self._row(self.lbl_region, grid_wrap, self.hint_region))
+        self.hint_region.setWordWrap(True)
+        body.addWidget(self.hint_region)
+
         layout.addWidget(card)
         layout.addStretch(1)
         return page
+
+    def _apply_region_preset(self, x: int, y: int, w: int, h: int) -> None:
+        if "x" in self.region_spins:
+            self.region_spins["x"].setValue(x)
+        if "y" in self.region_spins:
+            self.region_spins["y"].setValue(y)
+        if "w" in self.region_spins:
+            self.region_spins["w"].setValue(w)
+        if "h" in self.region_spins:
+            self.region_spins["h"].setValue(h)
 
     def _build_output_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
+        layout.setSpacing(14)
+
         store_card, store = self._card("card_storage")
 
         self.lbl_output_folder = QLabel()
@@ -1247,13 +1464,12 @@ class MainWindow(QMainWindow):
         self.output_edit.textChanged.connect(self._on_output_dir_changed)
         folder_row.addWidget(self.output_edit, 1)
         self.browse_btn = QPushButton()
+        self.browse_btn.setCursor(Qt.PointingHandCursor)
         self.browse_btn.clicked.connect(self.browse_output_folder)
         folder_row.addWidget(self.browse_btn)
         self.hint_output = QLabel()
         self.hint_output.setObjectName("Hint")
-        store.addWidget(
-            self._row(self.lbl_output_folder, folder_wrap, self.hint_output)
-        )
+        store.addWidget(self._row(self.lbl_output_folder, folder_wrap, self.hint_output))
 
         self.lbl_disk = QLabel()
         self.lbl_disk.setObjectName("RowLabel")
@@ -1268,9 +1484,7 @@ class MainWindow(QMainWindow):
         self.prefix_edit.textChanged.connect(self._on_prefix_changed)
         self.hint_prefix = QLabel()
         self.hint_prefix.setObjectName("Hint")
-        store.addWidget(
-            self._row(self.lbl_prefix, self.prefix_edit, self.hint_prefix)
-        )
+        store.addWidget(self._row(self.lbl_prefix, self.prefix_edit, self.hint_prefix))
 
         self.lbl_format = QLabel()
         self.lbl_format.setObjectName("RowLabel")
@@ -1279,23 +1493,29 @@ class MainWindow(QMainWindow):
         self.format_seg.changed.connect(self._on_format_changed)
         self.hint_format = QLabel()
         self.hint_format.setObjectName("Hint")
-        store.addWidget(
-            self._row(self.lbl_format, self.format_seg, self.hint_format)
-        )
+        store.addWidget(self._row(self.lbl_format, self.format_seg, self.hint_format))
         layout.addWidget(store_card)
 
+        # Recent Recordings Card
         self.lbl_recent = QLabel()
         self.lbl_recent.setObjectName("SectionTitle")
+        recent_card = QFrame()
+        recent_card.setObjectName("Card")
+        rc_outer = QVBoxLayout(recent_card)
+        rc_outer.setContentsMargins(18, 14, 18, 14)
+        rc_outer.setSpacing(10)
+        rc_outer.addWidget(self.lbl_recent)
+
         recent_wrap = QWidget()
         recent_col = QVBoxLayout(recent_wrap)
         recent_col.setContentsMargins(0, 0, 0, 0)
         recent_col.setSpacing(8)
+
         self.recent_list = QListWidget()
-        self.recent_list.setMaximumHeight(132)
-        self.recent_list.itemDoubleClicked.connect(
-            lambda _item: self._open_selected_recording()
-        )
+        self.recent_list.setMaximumHeight(140)
+        self.recent_list.itemDoubleClicked.connect(lambda _item: self._open_selected_recording())
         recent_col.addWidget(self.recent_list)
+
         recent_btns = QHBoxLayout()
         recent_btns.setContentsMargins(0, 0, 0, 0)
         recent_btns.setSpacing(8)
@@ -1303,20 +1523,17 @@ class MainWindow(QMainWindow):
         self.recent_open_btn.setCursor(Qt.PointingHandCursor)
         self.recent_open_btn.clicked.connect(self._open_selected_recording)
         recent_btns.addWidget(self.recent_open_btn)
+
         self.recent_refresh_btn = QPushButton()
         self.recent_refresh_btn.setCursor(Qt.PointingHandCursor)
         self.recent_refresh_btn.clicked.connect(self._refresh_recent)
         recent_btns.addWidget(self.recent_refresh_btn)
         recent_btns.addStretch(1)
+
         recent_col.addLayout(recent_btns)
-        recent_card = QFrame()
-        recent_card.setObjectName("Card")
-        rc_outer = QVBoxLayout(recent_card)
-        rc_outer.setContentsMargins(16, 12, 16, 12)
-        rc_outer.setSpacing(4)
-        rc_outer.addWidget(self.lbl_recent)
         rc_outer.addWidget(recent_wrap)
         layout.addWidget(recent_card)
+
         layout.addStretch(1)
         return page
 
@@ -1324,27 +1541,26 @@ class MainWindow(QMainWindow):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
+        layout.setSpacing(14)
+
         gen_card, gen = self._card("card_general")
 
         self.lbl_language = QLabel()
         self.lbl_language.setObjectName("RowLabel")
-        self.lang_seg = SegmentedControl(
-            [(LANGUAGE_LABELS[code], code) for code in SUPPORTED_LANGUAGES]
-        )
+        self.lang_seg = SegmentedControl([
+            (LANGUAGE_LABELS[code], code) for code in SUPPORTED_LANGUAGES
+        ])
         self.lang_seg.set_current_data(self.cfg.language)
         self.lang_seg.changed.connect(self._on_language_changed)
         self.hint_language = QLabel()
         self.hint_language.setObjectName("Hint")
-        gen.addWidget(
-            self._row(self.lbl_language, self.lang_seg, self.hint_language)
-        )
+        gen.addWidget(self._row(self.lbl_language, self.lang_seg, self.hint_language))
 
         self.lbl_theme = QLabel()
         self.lbl_theme.setObjectName("RowLabel")
-        self.theme_seg = SegmentedControl(
-            [("", name) for name in theme_mod.SUPPORTED_THEMES]
-        )
+        self.theme_seg = SegmentedControl([
+            ("", name) for name in theme_mod.SUPPORTED_THEMES
+        ])
         self.theme_seg.set_current_data(self.cfg.theme)
         self.theme_seg.changed.connect(self._on_theme_changed)
         self.hint_theme = QLabel()
@@ -1358,17 +1574,15 @@ class MainWindow(QMainWindow):
         sc_wrap = QWidget()
         sc_grid = QGridLayout(sc_wrap)
         sc_grid.setContentsMargins(0, 0, 0, 0)
-        sc_grid.setHorizontalSpacing(10)
-        sc_grid.setVerticalSpacing(8)
+        sc_grid.setHorizontalSpacing(12)
+        sc_grid.setVerticalSpacing(10)
         self.sc_edits: dict[str, QLineEdit] = {}
-        for i, (key, attr) in enumerate(
-            (
-                ("shortcut_record", "shortcut_record"),
-                ("shortcut_pause", "shortcut_pause"),
-                ("shortcut_replay", "shortcut_replay"),
-                ("shortcut_folder", "shortcut_folder"),
-            )
-        ):
+        for i, (key, attr) in enumerate((
+            ("shortcut_record", "shortcut_record"),
+            ("shortcut_pause", "shortcut_pause"),
+            ("shortcut_replay", "shortcut_replay"),
+            ("shortcut_folder", "shortcut_folder"),
+        )):
             edit = QLineEdit(getattr(self.cfg, attr))
             edit.setMaxLength(32)
             edit.setPlaceholderText(attr)
@@ -1379,14 +1593,17 @@ class MainWindow(QMainWindow):
             tag.setObjectName("RowLabel")
             tag.setProperty("sc_key", key)
             sc_grid.addWidget(tag, i // 2, (i % 2) * 2)
-        self._sc_tags = [sc_grid.itemAtPosition(r, c).widget()
-                         for r in range(2) for c in (0, 2)]
+
+        self._sc_tags = [
+            sc_grid.itemAtPosition(r, c).widget()
+            for r in range(2)
+            for c in (0, 2)
+        ]
         self.hint_shortcuts = QLabel()
         self.hint_shortcuts.setObjectName("Hint")
-        sc_body.addWidget(
-            self._row(self.lbl_shortcuts, sc_wrap, self.hint_shortcuts)
-        )
+        sc_body.addWidget(self._row(self.lbl_shortcuts, sc_wrap, self.hint_shortcuts))
         layout.addWidget(sc_card)
+
         layout.addStretch(1)
         return page
 
@@ -1394,12 +1611,14 @@ class MainWindow(QMainWindow):
         bar = QFrame()
         bar.setObjectName("Transport")
         row = QHBoxLayout(bar)
-        row.setContentsMargins(14, 10, 14, 10)
-        row.setSpacing(10)
+        row.setContentsMargins(16, 12, 16, 12)
+        row.setSpacing(12)
+
         self.record_btn = RecordButton()
         self.record_btn.clicked.connect(self.toggle)
         self.record_btn.setMinimumHeight(48)
         row.addWidget(self.record_btn, 1)
+
         self.pause_btn = QPushButton()
         self.pause_btn.setObjectName("Pause")
         self.pause_btn.setEnabled(False)
@@ -1409,6 +1628,7 @@ class MainWindow(QMainWindow):
         self.pause_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.pause_btn.setMinimumHeight(48)
         row.addWidget(self.pause_btn)
+
         self.replay_btn = QPushButton()
         self.replay_btn.setObjectName("Pause")
         self.replay_btn.setCursor(Qt.PointingHandCursor)
@@ -1417,35 +1637,41 @@ class MainWindow(QMainWindow):
         self.replay_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.replay_btn.setMinimumHeight(48)
         row.addWidget(self.replay_btn)
+
         return bar
 
     def _build_statusbar(self) -> QFrame:
         bar = QFrame()
         bar.setObjectName("StatusBar")
-        bar.setFixedHeight(FOOTER_H)
+        bar.setFixedHeight(FOOTER_H + 2)
         row = QHBoxLayout(bar)
-        row.setContentsMargins(14, 0, 10, 0)
-        row.setSpacing(8)
+        row.setContentsMargins(16, 0, 12, 0)
+        row.setSpacing(10)
+
         self.status_dot = StatusDot()
         row.addWidget(self.status_dot)
+
         self.status_lbl = QLabel()
         self.status_lbl.setObjectName("StatusText")
         self.status_lbl.setProperty("error", False)
         self.status_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         row.addWidget(self.status_lbl, 1)
+
         self.out_lbl = QLabel()
         self.out_lbl.setObjectName("OutPath")
         self.out_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         row.addWidget(self.out_lbl)
+
         self.folder_btn = QPushButton()
         self.folder_btn.setObjectName("FolderBtn")
         self.folder_btn.setCursor(Qt.PointingHandCursor)
-        self.folder_btn.setFixedSize(26, 26)
+        self.folder_btn.setFixedSize(28, 28)
         self.folder_btn.clicked.connect(self.open_output_folder)
         row.addWidget(self.folder_btn)
+
         return bar
 
-    # --- i18n ---
+    # --- Translations and Status Refresh ---
 
     def t(self, key: str) -> str:
         return _get(key, self.cfg.language)
@@ -1482,36 +1708,30 @@ class MainWindow(QMainWindow):
             btn.update()
 
         self.lbl_source.setText(_get("label_source", lang))
-        self.mode_seg.set_labels(
-            [
-                _get("mode_fullscreen", lang),
-                _get("mode_window", lang),
-                _get("mode_ask", lang),
-            ]
-        )
+        self.mode_seg.set_labels([
+            _get("mode_fullscreen", lang),
+            _get("mode_window", lang),
+            _get("mode_ask", lang),
+        ])
         self._refresh_mode_hint()
         self.lbl_quality.setText(_get("label_quality", lang))
-        self.quality_seg.set_labels(
-            [
-                _get("quality_draft", lang),
-                _get("quality_balanced", lang),
-                _get("quality_high", lang),
-                _get("quality_custom", lang),
-            ]
-        )
+        self.quality_seg.set_labels([
+            _get("quality_draft", lang),
+            _get("quality_balanced", lang),
+            _get("quality_high", lang),
+            _get("quality_custom", lang),
+        ])
         self._refresh_quality_hint()
         self.lbl_fps.setText(_get("label_fps", lang))
         self.lbl_bitrate.setText(_get("label_bitrate", lang))
 
         self.audio_lbl.setText(_get("audio_check", lang))
         self.lbl_audio_mode.setText(_get("audio_mode", lang))
-        self.audio_mode_seg.set_labels(
-            [
-                _get("audio_mode_mic", lang),
-                _get("audio_mode_desktop", lang),
-                _get("audio_mode_both", lang),
-            ]
-        )
+        self.audio_mode_seg.set_labels([
+            _get("audio_mode_mic", lang),
+            _get("audio_mode_desktop", lang),
+            _get("audio_mode_both", lang),
+        ])
         self._refresh_audio_mode_hint()
         self.lbl_mic_gain.setText(_get("label_mic_gain", lang))
         self.lbl_desk_gain.setText(_get("label_desktop_gain", lang))
@@ -1527,9 +1747,10 @@ class MainWindow(QMainWindow):
         self.lbl_cursor.setText(_get("label_cursor", lang))
         self.hint_cursor.setText(_get("cursor_hint", lang))
         self.lbl_countdown.setText(_get("label_countdown", lang))
-        self.countdown_seg.set_labels(
-            [_get("countdown_off", lang) if v == 0 else f"{v}s" for v in COUNTDOWN_CHOICES]
-        )
+        self.countdown_seg.set_labels([
+            _get("countdown_off", lang) if v == 0 else f"{v}s"
+            for v in COUNTDOWN_CHOICES
+        ])
         self.hint_countdown.setText(_get("countdown_hint", lang))
         self.lbl_autostop.setText(_get("label_autostop", lang))
         self.autostop_unit.setText(_get("autostop_minutes", lang))
@@ -1556,9 +1777,9 @@ class MainWindow(QMainWindow):
         self.lbl_language.setText(_get("label_language", lang))
         self.hint_language.setText(_get("language_hint", lang))
         self.lbl_theme.setText(_get("label_theme", lang))
-        self.theme_seg.set_labels(
-            [_get(f"theme_{name}", lang) for name in theme_mod.SUPPORTED_THEMES]
-        )
+        self.theme_seg.set_labels([
+            _get(f"theme_{name}", lang) for name in theme_mod.SUPPORTED_THEMES
+        ])
         self.hint_theme.setText(_get("theme_hint", lang))
         self.lbl_shortcuts.setText(_get("label_shortcuts", lang))
         self.hint_shortcuts.setText(_get("shortcuts_hint", lang))
@@ -1596,8 +1817,6 @@ class MainWindow(QMainWindow):
         self.folder_btn.setIcon(QIcon(pix))
 
     def _refresh_outcome(self) -> None:
-        from pathlib import Path
-
         path = str(self.cfg.output_dir)
         try:
             pretty = str(Path(path).relative_to(Path.home()))
@@ -1612,7 +1831,10 @@ class MainWindow(QMainWindow):
         self._paint_folder_icon()
 
     def _refresh_state_dot(self) -> None:
-        if self.rec.state.paused:
+        if self._countdown_timer.isActive():
+            self.status_dot.set_color(self.theme["PAUSED"])
+            state, pill = "countdown", f"{self._countdown_left}s"
+        elif self.rec.state.paused:
             self.status_dot.set_color(self.theme["PAUSED"])
             state, pill = "paused", self.t("pill_paused")
         elif self.rec.state.active:
@@ -1640,9 +1862,11 @@ class MainWindow(QMainWindow):
 
     def _refresh_gain_labels(self) -> None:
         self.mic_gain_value.setText(
-            self.t("gain_value").format(pct=self.mic_gain_slider.value()))
+            self.t("gain_value").format(pct=self.mic_gain_slider.value())
+        )
         self.desk_gain_value.setText(
-            self.t("gain_value").format(pct=self.desk_gain_slider.value()))
+            self.t("gain_value").format(pct=self.desk_gain_slider.value())
+        )
 
     def _refresh_gain_label(self) -> None:
         self._refresh_gain_labels()
@@ -1659,7 +1883,7 @@ class MainWindow(QMainWindow):
         self.cfg.save()
 
     def apply_theme(self, name: str) -> None:
-        """Switch the whole window to ``name`` and remember the choice."""
+        """Switch active theme and remember choice."""
         self.cfg.theme = theme_mod.normalize_theme(name)
         self.theme = theme_mod.get_theme(self.cfg.theme)
         self.theme_seg.set_current_data(self.cfg.theme)
@@ -1686,7 +1910,6 @@ class MainWindow(QMainWindow):
         return ("capture", "audio", "region", "output", "settings").index(code)
 
     def _setup_shortcuts(self) -> None:
-        """Window shortcuts: configurable (Settings page) + Space alias."""
         self._shortcuts: list[QShortcut] = []
         self._refresh_shortcuts()
 
@@ -1695,14 +1918,14 @@ class MainWindow(QMainWindow):
             try:
                 sc.setEnabled(False)
                 sc.deleteLater()
-            except Exception:  # noqa: BLE001, S110 - best effort teardown
+            except Exception:
                 pass
         self._shortcuts = []
 
         def _add(seq: str, slot) -> None:
             try:
                 sc = QShortcut(QKeySequence(seq), self)
-            except Exception:  # noqa: BLE001, S110 - bad shortcut string
+            except Exception:
                 return
             sc.setContext(Qt.WindowShortcut)
             sc.activated.connect(slot)
@@ -1714,18 +1937,15 @@ class MainWindow(QMainWindow):
         _add(self.cfg.shortcut_folder, self.open_output_folder)
         _add(self.cfg.shortcut_replay, self.save_replay_clip)
 
-    # --- System tray + notifications ---
+    # --- System Tray ---
 
     def _setup_tray(self) -> None:
         self.tray: QSystemTrayIcon | None = None
         try:
             if not QSystemTrayIcon.isSystemTrayAvailable():
                 return
-        except Exception:  # noqa: BLE001
+        except Exception:
             return
-        # Top-bar (tray) icon is symbolic white like Discord's so it
-        # blends with the other indicators. The colourful logo.png stays
-        # as the window/desktop icon and is intentionally not used here.
         tray = QSystemTrayIcon(tray_icon("#FFFFFF"), self)
         menu = QMenu()
         self.tray_toggle_act = menu.addAction("")
@@ -1764,7 +1984,7 @@ class MainWindow(QMainWindow):
             return
         try:
             self.tray.showMessage("CastMane", message, QSystemTrayIcon.Information, 4000)
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
     @staticmethod
@@ -1801,7 +2021,7 @@ class MainWindow(QMainWindow):
         else:
             self.setWindowTitle("CastMane")
 
-    # --- Recording control ---
+    # --- Recording Control ---
 
     def _set_recording_ui(self, recording: bool) -> None:
         self.record_btn.set_recording(recording)
@@ -1837,13 +2057,13 @@ class MainWindow(QMainWindow):
         self._set_region_enabled(enabled)
 
     def toggle(self) -> None:
-        # A second press while counting down cancels the countdown.
         if self._countdown_timer.isActive():
             self._countdown_timer.stop()
             self._countdown_left = 0
             self.timer_lbl.setText("00:00:00")
             self._refresh_idle_status()
             self._set_inputs_enabled(True)
+            self._refresh_state_dot()
             return
         if not self.rec.state.active:
             if self.cfg.countdown_s > 0:
@@ -1853,6 +2073,7 @@ class MainWindow(QMainWindow):
                     self.t("countdown_status").format(n=self._countdown_left)
                 )
                 self.timer_lbl.setText(self._fmt_elapsed(self._countdown_left))
+                self._refresh_state_dot()
                 self._countdown_timer.start()
                 return
             self._start_recording()
@@ -1869,6 +2090,7 @@ class MainWindow(QMainWindow):
             self.t("countdown_status").format(n=self._countdown_left)
         )
         self.timer_lbl.setText(self._fmt_elapsed(self._countdown_left))
+        self._refresh_state_dot()
 
     def _start_recording(self) -> None:
         free_mb = self.cfg.output_dir_free_mb()
@@ -1883,7 +2105,7 @@ class MainWindow(QMainWindow):
             self._set_inputs_enabled(True)
             self._fail(self.t("deps_missing"))
             return
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             self._set_inputs_enabled(True)
             self._fail(self.t("start_failed").format(err=e))
             return
@@ -1951,7 +2173,6 @@ class MainWindow(QMainWindow):
             else:
                 self.rec.pause()
                 if self._autostop_timer.isActive():
-                    # Freeze the deadline: resume() restarts it with the rest.
                     self._autostop_remaining_ms = self._autostop_timer.remainingTime()
                     self._autostop_timer.stop()
                 self.pause_btn.setText(self.t("resume"))
@@ -1960,7 +2181,7 @@ class MainWindow(QMainWindow):
             self._refresh_state_dot()
             self._refresh_tray()
             self._refresh_title()
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             self._fail(self.t("pause_error").format(err=e))
 
     def open_output_folder(self) -> None:
@@ -1968,17 +2189,12 @@ class MainWindow(QMainWindow):
         try:
             path.mkdir(parents=True, exist_ok=True)
             subprocess.Popen(["xdg-open", str(path)])
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             self._fail(self.t("error_prefix").format(err=e))
 
     # --- Interrupted-recording recovery ---
 
     def _maybe_offer_recovery(self) -> None:
-        """Ask about leftover `.part` files from a crash, if any.
-
-        Skipped when a recording is already active and when
-        `CASTMANE_NO_RECOVERY` is set (tests / headless runs).
-        """
         if self.rec.state.active or os.environ.get("CASTMANE_NO_RECOVERY"):
             return
         from .recorder import find_stale_parts
@@ -1989,17 +2205,12 @@ class MainWindow(QMainWindow):
         self._offer_recovery(parts)
 
     def _offer_recovery(self, parts: list[Path]) -> str:
-        """Show the Restore / Delete / Later dialog. Returns the action."""
         box = QMessageBox(self)
         box.setWindowTitle(self.t("recovery_title"))
         box.setText(self.t("recovery_text").format(n=len(parts)))
         box.setInformativeText("\n".join(p.name for p in parts[:8]))
-        restore_btn = box.addButton(
-            self.t("recovery_restore"), QMessageBox.AcceptRole
-        )
-        discard_btn = box.addButton(
-            self.t("recovery_discard"), QMessageBox.DestructiveRole
-        )
+        restore_btn = box.addButton(self.t("recovery_restore"), QMessageBox.AcceptRole)
+        discard_btn = box.addButton(self.t("recovery_discard"), QMessageBox.DestructiveRole)
         box.addButton(self.t("recovery_later"), QMessageBox.RejectRole)
         box.exec()
         clicked = box.clickedButton()
@@ -2019,9 +2230,7 @@ class MainWindow(QMainWindow):
             self._clear_error()
             self._notify(msg)
             return "restored"
-        msg = self.t("recovery_failed").format(
-            names=", ".join(p.name for p in parts)
-        )
+        msg = self.t("recovery_failed").format(names=", ".join(p.name for p in parts))
         self._fail(msg)
         return "failed"
 
@@ -2038,7 +2247,7 @@ class MainWindow(QMainWindow):
         self._clear_error()
         return "deleted"
 
-    # --- Setting handlers ---
+    # --- Setting Handlers ---
 
     def _on_audio_toggled(self, checked: bool) -> None:
         self.cfg.audio_enabled = checked
@@ -2113,8 +2322,6 @@ class MainWindow(QMainWindow):
             self.rec.cfg.apply_quality_preset(preset)
         except (AttributeError, ValueError):
             pass
-        # Named presets own fps/bitrate: show their values without
-        # tripping the custom switch.
         self.fps_spin.blockSignals(True)
         self.br_spin.blockSignals(True)
         self.fps_spin.setValue(self.cfg.fps)
@@ -2125,7 +2332,6 @@ class MainWindow(QMainWindow):
         self._refresh_quality_hint()
 
     def _switch_to_custom(self) -> None:
-        """Editing fps/bitrate by hand means the Custom preset."""
         if self.quality_seg.current_data() == "custom":
             return
         self.cfg.apply_quality_preset("custom")
@@ -2189,7 +2395,7 @@ class MainWindow(QMainWindow):
                 continue
             when = datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M")
             size = format_file_size(st.st_size)
-            item = QListWidgetItem(f"{path.name}  ·  {size}  ·  {when}")
+            item = QListWidgetItem(f"🎬  {path.name}   ·   {size}   ·   {when}")
             item.setData(Qt.UserRole, str(path))
             self.recent_list.addItem(item)
         if self.recent_list.count() == 0:
@@ -2197,15 +2403,12 @@ class MainWindow(QMainWindow):
             empty.setFlags(empty.flags() & ~Qt.ItemIsSelectable)
             self.recent_list.addItem(empty)
         else:
-            # A row is always selected, so Aç/Open just works.
             self.recent_list.setCurrentRow(0)
 
     def _open_selected_recording(self) -> None:
         item = self.recent_list.currentItem()
         target = item.data(Qt.UserRole) if item is not None else None
         if not target:
-            # No selection (or the empty placeholder): fall back to the
-            # newest recording, if the list holds one.
             for row in range(self.recent_list.count()):
                 candidate = self.recent_list.item(row).data(Qt.UserRole)
                 if candidate:
@@ -2217,11 +2420,7 @@ class MainWindow(QMainWindow):
             self._clear_error()
             return
         path = Path(target)
-        # QDesktopServices reports failure (unlike fire-and-forget
-        # xdg-open, whose errors died silently with the child).
-        if not path.is_file() or not QDesktopServices.openUrl(
-            QUrl.fromLocalFile(str(path))
-        ):
+        if not path.is_file() or not QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))):
             self._fail(self.t("recent_open_failed").format(err=path.name))
 
     def _on_mode_changed(self, mode: str) -> None:
@@ -2293,8 +2492,12 @@ class MainWindow(QMainWindow):
         from .config import normalize_shortcut
 
         edits = getattr(self, "sc_edits", {})
-        defaults = {"shortcut_record": "R", "shortcut_pause": "P",
-                    "shortcut_replay": "T", "shortcut_folder": "F"}
+        defaults = {
+            "shortcut_record": "R",
+            "shortcut_pause": "P",
+            "shortcut_replay": "T",
+            "shortcut_folder": "F",
+        }
         for attr, edit in edits.items():
             value = normalize_shortcut(edit.text(), defaults[attr])
             setattr(self.cfg, attr, value)
@@ -2375,7 +2578,6 @@ class MainWindow(QMainWindow):
             self._stop_recording(reason="autostop")
 
     def _disk_guard_tick(self) -> None:
-        """Live disk guard: stop cleanly before the disk fills mid-take."""
         self._disk_check_counter += 1
         if self._disk_check_counter < 10:
             return
@@ -2389,7 +2591,7 @@ class MainWindow(QMainWindow):
         for spin in self.region_spins.values():
             spin.setEnabled(enabled)
 
-    # --- Errors ---
+    # --- Errors & Status ---
 
     def _clear_error(self) -> None:
         self.status_lbl.setProperty("error", False)
@@ -2400,7 +2602,7 @@ class MainWindow(QMainWindow):
         self.status_lbl.setProperty("error", True)
         _repolish(self.status_lbl)
 
-    # --- Tick ---
+    # --- Ticking & Teardown ---
 
     def tick(self) -> None:
         if self.rec.state.active:
@@ -2423,9 +2625,7 @@ class MainWindow(QMainWindow):
             self._set_recording_ui(False)
             self.timer.stop()
 
-    def closeEvent(self, event) -> None:  # noqa: N802
-        # Recording + tray available: minimize to tray instead of killing
-        # the take. Tray menu Quit still exits for real.
+    def closeEvent(self, event) -> None:
         if (
             self.rec.state.active
             and not self._quit_requested

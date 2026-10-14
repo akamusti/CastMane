@@ -10,7 +10,7 @@ from castmane.config import COUNTDOWN_CHOICES, AppConfig
 
 
 def _window(countdown_s: int):
-    app = QApplication.instance() or QApplication([])
+    _ = QApplication.instance() or QApplication([])
     os.environ["CASTMANE_NO_RECOVERY"] = "1"
     cfg = AppConfig(countdown_s=countdown_s)
     return MainWindow(cfg)

@@ -11,7 +11,7 @@ from castmane.i18n import STRINGS, SUPPORTED_LANGUAGES
 
 
 def _window():
-    app = QApplication.instance() or QApplication([])
+    _ = QApplication.instance() or QApplication([])
     os.environ["CASTMANE_NO_RECOVERY"] = "1"
     return MainWindow(AppConfig())
 

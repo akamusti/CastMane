@@ -22,9 +22,19 @@ from PySide6.QtGui import (
 )
 
 # Icons stroked with a pen: monitors, gauges, frames, glyph outlines.
-_STROKED = ("monitor", "audio", "region", "power", "folder", "gear")
+_STROKED = (
+    "monitor",
+    "audio",
+    "region",
+    "power",
+    "folder",
+    "gear",
+    "refresh",
+    "mic",
+    "speaker",
+)
 # Icons filled solid: the small transport glyphs.
-_FILLED = ("dot", "stop", "pause")
+_FILLED = ("dot", "stop", "pause", "play", "sparkle")
 
 # Fraction of the icon's short side used as the stroke width.
 _STROKE = 0.09
@@ -91,6 +101,50 @@ def _geometry(name: str) -> QPainterPath:
     elif name == "pause":
         for x in (0.29, 0.59):
             p.addRoundedRect(QRectF(x, 0.25, 0.12, 0.5), 0.06, 0.06)
+    elif name == "play":
+        p.moveTo(0.32, 0.22)
+        p.lineTo(0.78, 0.50)
+        p.lineTo(0.32, 0.78)
+        p.closeSubpath()
+    elif name == "refresh":
+        # 270 deg circular arc with an arrow tip
+        p.arcMove(QRectF(0.20, 0.20, 0.60, 0.60), 45)
+        p.arcTo(QRectF(0.20, 0.20, 0.60, 0.60), 45, 270)
+        # arrow head at top
+        p.moveTo(0.50, 0.10)
+        p.lineTo(0.65, 0.22)
+        p.lineTo(0.50, 0.34)
+    elif name == "mic":
+        # Mic capsule + stand
+        p.addRoundedRect(QRectF(0.38, 0.15, 0.24, 0.44), 0.12, 0.12)
+        p.arcMove(QRectF(0.26, 0.28, 0.48, 0.42), 0)
+        p.arcTo(QRectF(0.26, 0.28, 0.48, 0.42), 0, -180)
+        p.moveTo(0.50, 0.70)
+        p.lineTo(0.50, 0.85)
+        p.moveTo(0.34, 0.85)
+        p.lineTo(0.66, 0.85)
+    elif name == "speaker":
+        # Speaker cone
+        p.moveTo(0.18, 0.38)
+        p.lineTo(0.32, 0.38)
+        p.lineTo(0.52, 0.22)
+        p.lineTo(0.52, 0.78)
+        p.lineTo(0.32, 0.62)
+        p.lineTo(0.18, 0.62)
+        p.closeSubpath()
+        # Sound waves
+        p.arcMove(QRectF(0.42, 0.35, 0.30, 0.30), -45)
+        p.arcTo(QRectF(0.42, 0.35, 0.30, 0.30), -45, 90)
+        p.arcMove(QRectF(0.35, 0.24, 0.48, 0.52), -45)
+        p.arcTo(QRectF(0.35, 0.24, 0.48, 0.52), -45, 90)
+    elif name == "sparkle":
+        # 4-pointed sparkle / star
+        p.moveTo(0.50, 0.16)
+        p.quadTo(0.50, 0.50, 0.84, 0.50)
+        p.quadTo(0.50, 0.50, 0.50, 0.84)
+        p.quadTo(0.50, 0.50, 0.16, 0.50)
+        p.quadTo(0.50, 0.50, 0.50, 0.16)
+        p.closeSubpath()
     return p
 
 
