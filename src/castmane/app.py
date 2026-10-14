@@ -203,6 +203,9 @@ QLabel#Hint {{
     color: {TEXT_FAINT};
     font-size: 11px;
 }}
+QLabel#Hint[error="true"] {{
+    color: {REC};
+}}
 QFrame#Hairline {{
     background-color: {HAIRLINE};
     border: none;
@@ -812,7 +815,15 @@ class MainWindow(QMainWindow):
         self.timer_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.timer_lbl.setProperty("recording", False)
         font = QFont()
-        font.setFamily("JetBrains Mono")
+        font.setFamilies(
+            [
+                "JetBrains Mono",
+                "DejaVu Sans Mono",
+                "Noto Sans Mono",
+                "Liberation Mono",
+                "monospace",
+            ]
+        )
         font.setStyleHint(QFont.Monospace)
         font.setPixelSize(20)
         font.setWeight(QFont.DemiBold)
@@ -1394,14 +1405,16 @@ class MainWindow(QMainWindow):
         self.pause_btn.setEnabled(False)
         self.pause_btn.setCursor(Qt.PointingHandCursor)
         self.pause_btn.clicked.connect(self.toggle_pause)
-        self.pause_btn.setFixedWidth(118)
+        self.pause_btn.setMinimumWidth(118)
+        self.pause_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.pause_btn.setMinimumHeight(48)
         row.addWidget(self.pause_btn)
         self.replay_btn = QPushButton()
         self.replay_btn.setObjectName("Pause")
         self.replay_btn.setCursor(Qt.PointingHandCursor)
         self.replay_btn.clicked.connect(self.save_replay_clip)
-        self.replay_btn.setFixedWidth(132)
+        self.replay_btn.setMinimumWidth(132)
+        self.replay_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.replay_btn.setMinimumHeight(48)
         row.addWidget(self.replay_btn)
         return bar
@@ -1529,7 +1542,7 @@ class MainWindow(QMainWindow):
         self.lbl_output_folder.setText(_get("label_output_folder", lang))
         self.browse_btn.setText(_get("output_browse", lang))
         self.hint_output.setText(_get("output_hint", lang))
-        self.lbl_disk.setText(_get("label_output_folder", lang))
+        self.lbl_disk.setText(_get("label_disk", lang))
         self.lbl_prefix.setText(_get("label_prefix", lang))
         self.hint_prefix.setText(_get("prefix_hint", lang))
         self.lbl_format.setText(_get("label_format", lang))
@@ -2346,11 +2359,16 @@ class MainWindow(QMainWindow):
         mb = self.cfg.output_dir_free_mb()
         if mb is None:
             self.disk_value.setText(self.t("disk_unknown"))
+            self.disk_value.setProperty("error", False)
+            _repolish(self.disk_value)
             return
         if mb < MIN_FREE_MB:
             self.disk_value.setText(self.t("disk_low").format(mb=mb))
+            self.disk_value.setProperty("error", True)
         else:
             self.disk_value.setText(self.t("disk_free").format(mb=mb))
+            self.disk_value.setProperty("error", False)
+        _repolish(self.disk_value)
 
     def _auto_stop_timeout(self) -> None:
         if self.rec.state.active and not self.rec.state.paused:
