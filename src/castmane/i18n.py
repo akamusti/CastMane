@@ -87,6 +87,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "label_region": "Capture region",
         "region_hint": "Used on X11 only. Leave every field at 0 for "
         "fullscreen capture.",
+        "region_preset_1080": "1080p (1920×1080)",
+        "region_preset_720": "720p (1280×720)",
+        "region_preset_full": "Full screen",
         "label_output": "Output folder",
         "outcome": "Timestamped files land in ~/Videos/CastMane",
         "label_language": "Language",
@@ -238,6 +241,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "label_region": "Yakalama bölgesi",
         "region_hint": "Yalnızca X11'de kullanılır. Tam ekran için "
         "tüm alanları 0 bırak.",
+        "region_preset_1080": "1080p (1920×1080)",
+        "region_preset_720": "720p (1280×720)",
+        "region_preset_full": "Tam ekran",
         "label_output": "Çıktı klasörü",
         "outcome": "Zaman damgalı dosyalar ~/Videos/CastMane içine düşer",
         "label_language": "Dil",

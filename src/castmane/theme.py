@@ -66,6 +66,7 @@ RADIUS_SM = 5  # inner elements: segments, chips
 RADIUS_LG = 9  # containers
 
 HEADER_H = 58
+HEADER_TIMER_H = 34  # height of the digital timer capsule in the header
 SIDEBAR_W = 188
 NAV_H = 34
 FOOTER_H = 34

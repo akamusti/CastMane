@@ -63,6 +63,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import theme as theme_mod
+from .__init__ import __version__
 from .backends import create_backend, session_is_wayland
 from .config import (
     AUTO_STOP_MAX_MIN,
@@ -82,6 +83,7 @@ from .theme import (
     FONT_UI,
     FOOTER_H,
     HEADER_H,
+    HEADER_TIMER_H,
     RADIUS,
     RADIUS_LG,
     RADIUS_SM,
@@ -196,26 +198,28 @@ QLabel#AppBadge {{
 QFrame#TimerDisplay {{
     background-color: {SURFACE_SUNKEN};
     border: 1px solid {HAIRLINE};
-    border-radius: 8px;
-    padding: 2px 10px;
+    border-radius: 10px;
 }}
 QLabel#Timer {{
     color: {TEXT_SOFT};
     letter-spacing: 0.5px;
+    background: transparent;
 }}
 QLabel#Timer[recording="true"] {{
     color: {REC};
     font-weight: 700;
 }}
 
-/* State Pill (Header) */
+/* State Pill (Header) — fixed pill height, text hugs its box */
 QLabel#Pill {{
     border: 1px solid {HAIRLINE_STRONG};
-    border-radius: 12px;
-    padding: 3px 12px;
-    font-size: 11px;
+    border-radius: 11px;
+    padding: 0px 12px;
+    min-height: 20px;
+    max-height: 20px;
+    font-size: 10px;
     font-weight: 700;
-    letter-spacing: 0.4px;
+    letter-spacing: 0.8px;
     color: {READY};
     background-color: {READY_TINT};
 }}
@@ -250,7 +254,7 @@ QPushButton#Nav {{
     background: transparent;
     border: 1px solid transparent;
     border-radius: {RADIUS}px;
-    padding: 0 12px 0 38px;
+    padding: 0 12px 0 42px;
     color: {TEXT_MUTED};
     font-size: 13px;
     font-weight: 500;
@@ -321,7 +325,7 @@ QPushButton#Seg {{
     background: transparent;
     border: 1px solid transparent;
     border-radius: {RADIUS_SM}px;
-    padding: 6px 10px;
+    padding: 6px 8px;
     color: {TEXT_MUTED};
     font-size: 12px;
     font-weight: 500;
@@ -460,10 +464,11 @@ QLabel#StripValue {{
     background-color: {SURFACE};
     border: 1px solid {HAIRLINE};
     border-radius: 6px;
-    padding: 3px 8px;
+    padding: 3px 10px;
+    min-width: 52px;
 }}
 QSlider::groove:vertical {{
-    width: 6px;
+    width: 8px;
     background: {BTN_BORDER};
     border: none;
     border-radius: 3px;
@@ -801,15 +806,15 @@ class NavButton(QPushButton):
         p.setRenderHint(QPainter.Antialiasing)
         t = _active_theme(self)
 
-        # Draw left accent bar when active
+        # Draw left accent rail when active (inset, clear of the card border)
         if self.isChecked():
             p.setPen(Qt.NoPen)
             p.setBrush(QColor(t["INK"]))
-            p.drawRoundedRect(QRectF(3, 8, 3, self.height() - 16), 1.5, 1.5)
+            p.drawRoundedRect(QRectF(5, 11, 3, self.height() - 22), 1.5, 1.5)
 
         # Draw icon
         side = 16.0
-        x = 12.0
+        x = 18.0
         y = (self.height() - side) / 2.0
         paint_icon(p, self._icon, QRectF(x, y, side, side), self._ink())
 
@@ -944,7 +949,7 @@ class MainWindow(QMainWindow):
         name.setObjectName("AppName")
         title_row.addWidget(name)
 
-        badge = QLabel("v0.9.3")
+        badge = QLabel(f"v{__version__}")
         badge.setObjectName("AppBadge")
         title_row.addWidget(badge)
         title_row.addStretch(1)
@@ -956,18 +961,22 @@ class MainWindow(QMainWindow):
         text.addWidget(self.subtitle_lbl)
         row.addLayout(text, 1)
 
-        # Live State Pill
+        # Live State Pill — hugs its text, vertically centred in the header.
         self.state_pill = QLabel("READY")
         self.state_pill.setObjectName("Pill")
         self.state_pill.setProperty("state", "ready")
         self.state_pill.setAlignment(Qt.AlignCenter)
-        row.addWidget(self.state_pill)
+        self.state_pill.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        row.addWidget(self.state_pill, 0, Qt.AlignVCenter)
 
         # Digital Timer Capsule
         timer_box = QFrame()
         timer_box.setObjectName("TimerDisplay")
+        timer_box.setFixedHeight(HEADER_TIMER_H)
+        timer_box.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         timer_layout = QHBoxLayout(timer_box)
-        timer_layout.setContentsMargins(8, 4, 8, 4)
+        timer_layout.setContentsMargins(0, 0, 0, 0)
+        timer_layout.setSpacing(0)
 
         self.timer_lbl = QLabel("00:00:00")
         self.timer_lbl.setObjectName("Timer")
@@ -986,10 +995,10 @@ class MainWindow(QMainWindow):
         font.setWeight(QFont.DemiBold)
         self.timer_lbl.setFont(font)
         self.timer_lbl.setFixedWidth(
-            QFontMetrics(font).horizontalAdvance("00:00:00") + 10
+            QFontMetrics(font).horizontalAdvance("00:00:00") + 8
         )
         timer_layout.addWidget(self.timer_lbl)
-        row.addWidget(timer_box)
+        row.addWidget(timer_box, 0, Qt.AlignVCenter)
 
         return bar
 
@@ -1088,7 +1097,14 @@ class MainWindow(QMainWindow):
         fader_row.addWidget(slider)
         fader_row.addStretch(1)
         box.addLayout(fader_row)
-        box.addWidget(value)
+        value.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        value.setAlignment(Qt.AlignCenter)
+        value_row = QHBoxLayout()
+        value_row.setContentsMargins(0, 0, 0, 0)
+        value_row.addStretch(1)
+        value_row.addWidget(value)
+        value_row.addStretch(1)
+        box.addLayout(value_row)
         return frame
 
     def _row(
@@ -1120,6 +1136,28 @@ class MainWindow(QMainWindow):
             indent_layout.addWidget(spacer)
             indent_layout.addWidget(hint, 1)
             layout.addWidget(indent)
+        return box
+
+    def _stacked_row(
+        self,
+        label: QLabel,
+        control: QWidget,
+        hint: QLabel | None = None,
+    ) -> QWidget:
+        """Row where the label sits above a full-width control.
+
+        Used for wide controls (many segments) that would otherwise be
+        squeezed into the narrow control column and clip their labels.
+        """
+        box = QWidget()
+        layout = QVBoxLayout(box)
+        layout.setContentsMargins(0, 8, 0, 8)
+        layout.setSpacing(4)
+        layout.addWidget(label)
+        layout.addWidget(control)
+        if hint is not None:
+            hint.setWordWrap(True)
+            layout.addWidget(hint)
         return box
 
     @staticmethod
@@ -1394,7 +1432,7 @@ class MainWindow(QMainWindow):
             ("h", self.cfg.region_h),
         )):
             spin = QSpinBox()
-            spin.setPrefix(f"{key.upper()}  ")
+            spin.setPrefix(f"{key.upper()} ")
             spin.setRange(0, 10000)
             spin.setValue(value)
             spin.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
@@ -1408,21 +1446,22 @@ class MainWindow(QMainWindow):
         preset_row.setContentsMargins(0, 4, 0, 0)
         preset_row.setSpacing(8)
 
-        btn_1080 = QPushButton("1080p (1920×1080)")
+        btn_1080 = QPushButton(self.t("region_preset_1080"))
         btn_1080.setCursor(Qt.PointingHandCursor)
         btn_1080.clicked.connect(lambda: self._apply_region_preset(0, 0, 1920, 1080))
         preset_row.addWidget(btn_1080)
 
-        btn_720 = QPushButton("720p (1280×720)")
+        btn_720 = QPushButton(self.t("region_preset_720"))
         btn_720.setCursor(Qt.PointingHandCursor)
         btn_720.clicked.connect(lambda: self._apply_region_preset(0, 0, 1280, 720))
         preset_row.addWidget(btn_720)
 
-        btn_reset = QPushButton("Full / 0")
+        btn_reset = QPushButton(self.t("region_preset_full"))
         btn_reset.setCursor(Qt.PointingHandCursor)
         btn_reset.clicked.connect(lambda: self._apply_region_preset(0, 0, 0, 0))
         preset_row.addWidget(btn_reset)
         preset_row.addStretch(1)
+        self.region_preset_btns = [btn_1080, btn_720, btn_reset]
 
         body.addWidget(self._row(self.lbl_region, grid_wrap))
         body.addLayout(preset_row)
@@ -1565,7 +1604,7 @@ class MainWindow(QMainWindow):
         self.theme_seg.changed.connect(self._on_theme_changed)
         self.hint_theme = QLabel()
         self.hint_theme.setObjectName("Hint")
-        gen.addWidget(self._row(self.lbl_theme, self.theme_seg, self.hint_theme))
+        gen.addWidget(self._stacked_row(self.lbl_theme, self.theme_seg, self.hint_theme))
         layout.addWidget(gen_card)
 
         sc_card, sc_body = self._card("card_shortcuts")
@@ -1743,6 +1782,9 @@ class MainWindow(QMainWindow):
 
         self.lbl_region.setText(_get("label_region", lang))
         self.hint_region.setText(_get("region_hint", lang))
+        self.region_preset_btns[0].setText(_get("region_preset_1080", lang))
+        self.region_preset_btns[1].setText(_get("region_preset_720", lang))
+        self.region_preset_btns[2].setText(_get("region_preset_full", lang))
 
         self.lbl_cursor.setText(_get("label_cursor", lang))
         self.hint_cursor.setText(_get("cursor_hint", lang))
