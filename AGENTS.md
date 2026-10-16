@@ -79,6 +79,9 @@ grep -rniE "api[_-]?key|secret|token|password|passwd|bearer" src tests --include
 ## Versiyonlama (ilerideki tüm update'ler için geçerli, kalıcı kural)
 
 - Varsayılan patch artır: `0.8.0` → `0.8.1`, `0.8.2`, `0.8.3`... Küçük fix / küçük iyileştirme = patch.
+- Çok küçük düzeltmeler (tek satırlık fix, layout sıkıştırma, yazım/çeviri, padding vb. — yeni davranış yok)
+  patch hanesini büyütmez, son haneye eklenir: `0.9.5` → `0.9.51`, `0.9.52`... Sıradaki gerçek
+  patch/fix paketi normal numaraya döner (`0.9.6`). Sadece küçük updatelerde bu şema kullanılır.
 - `0.9.0` (minor) sadece gözle görülür yeni özellik / birikmiş özellik paketi için, kullanıcı onayı ile.
 - `1.0.0` (major) sadece büyük kırıcı değişiklik / stable milestone için, açık kullanıcı onayı olmadan geçme.
 - Ajan kendiliğinden minor/major'a zıplamaz; emin değilse patch'te kalır ve kullanıcıya sorar.
