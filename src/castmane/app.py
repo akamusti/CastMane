@@ -931,7 +931,7 @@ class MainWindow(QMainWindow):
         self.rec = create_backend(self.cfg)
         self._card_labels: list[QLabel] = []
         self.setWindowTitle("CastMane")
-        self.resize(940, 670)
+        self.resize(960, 720)
         self.setMinimumSize(780, 570)
         self.setStyleSheet(build_stylesheet(self.theme))
         icon_path = logo_path()
@@ -1231,7 +1231,7 @@ class MainWindow(QMainWindow):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(14)
+        layout.setSpacing(12)
 
         preview_card, preview = self._card("studio_preview")
         badge_row = QHBoxLayout()
@@ -1250,24 +1250,25 @@ class MainWindow(QMainWindow):
         preview.addLayout(badge_row)
 
         video_row = QHBoxLayout()
-        video_row.setContentsMargins(0, 6, 0, 0)
+        video_row.setContentsMargins(0, 2, 0, 0)
         video_row.setSpacing(12)
         self.screen_view = QVideoWidget()
         self.screen_view.setObjectName("ScreenView")
-        self.screen_view.setMinimumHeight(240)
-        self.screen_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.screen_view.setMinimumHeight(150)
+        self.screen_view.setMaximumHeight(180)
+        self.screen_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         video_row.addWidget(self.screen_view, 1)
         cam_col = QVBoxLayout()
         cam_col.setContentsMargins(0, 0, 0, 0)
         cam_col.setSpacing(6)
         self.cam_view = QVideoWidget()
         self.cam_view.setObjectName("CamView")
-        self.cam_view.setFixedSize(240, 150)
+        self.cam_view.setFixedSize(200, 125)
         cam_col.addWidget(self.cam_view)
         self.cam_status = QLabel()
         self.cam_status.setObjectName("Hint")
         self.cam_status.setWordWrap(True)
-        self.cam_status.setFixedWidth(240)
+        self.cam_status.setFixedWidth(200)
         cam_col.addWidget(self.cam_status)
         cam_col.addStretch(1)
         video_row.addLayout(cam_col)
@@ -1295,11 +1296,13 @@ class MainWindow(QMainWindow):
 
         bottom = QHBoxLayout()
         bottom.setContentsMargins(0, 0, 0, 0)
-        bottom.setSpacing(14)
+        bottom.setSpacing(12)
 
         sources_card, sources = self._card("sources_title")
         self.sources_list = QListWidget()
-        self.sources_list.setMaximumHeight(150)
+        self.sources_list.setMaximumHeight(140)
+        self.sources_list.setMinimumHeight(140)
+        self.sources_list.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         for key in ("display", "camera", "mic", "desktop"):
             item = QListWidgetItem()
             item.setData(Qt.UserRole, key)
@@ -1323,7 +1326,7 @@ class MainWindow(QMainWindow):
         self.camera_sw = Switch()
         self.camera_sw.setChecked(self.cfg.camera_enabled)
         self.camera_sw.toggled.connect(self._on_camera_toggled)
-        cam.addWidget(self._row(self.lbl_camera_on, self._switch_wrap(self.camera_sw)))
+        cam.addWidget(self._stacked_row(self.lbl_camera_on, self._switch_wrap(self.camera_sw)))
         self.lbl_camera_device = QLabel()
         self.lbl_camera_device.setObjectName("RowLabel")
         self.camera_combo = QComboBox()
@@ -1331,7 +1334,7 @@ class MainWindow(QMainWindow):
         self.camera_combo.currentIndexChanged.connect(
             self._on_camera_device_changed
         )
-        cam.addWidget(self._row(self.lbl_camera_device, self.camera_combo))
+        cam.addWidget(self._stacked_row(self.lbl_camera_device, self.camera_combo))
         self.lbl_camera_embed = QLabel()
         self.lbl_camera_embed.setObjectName("RowLabel")
         self.camera_embed_sw = Switch()
@@ -1340,7 +1343,7 @@ class MainWindow(QMainWindow):
         self.hint_camera_embed = QLabel()
         self.hint_camera_embed.setObjectName("Hint")
         cam.addWidget(
-            self._row(
+            self._stacked_row(
                 self.lbl_camera_embed,
                 self._switch_wrap(self.camera_embed_sw),
                 self.hint_camera_embed,
@@ -1968,7 +1971,7 @@ class MainWindow(QMainWindow):
         self.lbl_camera_embed.setText(_get("label_camera_embed", lang))
         self.hint_camera_embed.setText(_get("camera_embed_hint", lang))
         self.hint_camera.setText(_get("camera_hint", lang))
-        self.hint_sources.setText(_get("audio_hint", lang))
+        self.hint_sources.setText(_get("sources_hint", lang))
         self._refresh_camera_devices()
         self._refresh_sources()
         self._sync_studio_controls()
@@ -2469,8 +2472,6 @@ class MainWindow(QMainWindow):
                 item.setCheckState(
                     Qt.Checked if states[key] else Qt.Unchecked
                 )
-            else:
-                item.setCheckState(Qt.Checked)
         self.sources_list.blockSignals(False)
 
     def _on_source_toggled(self, item: QListWidgetItem) -> None:
