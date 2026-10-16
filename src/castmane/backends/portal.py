@@ -309,6 +309,19 @@ class PortalRecorder:
         # video ... ! mux. + audio pulsesrc ... ! mux.
         # AAC is picked so it travels losslessly with `-c copy`
         # both in MKV and in the MP4 remux.
+        # Camera picture-in-picture (OBS-style): v4l2src is composited
+        # over the screen share via `compositor` (top-left corner, fixed
+        # offset: the portal stream size is unknown at build time, so a
+        # bottom-right anchor cannot be computed here). Preview-only mode
+        # adds no branch (the Studio preview shows the camera separately).
+        from ..camera import resolve_camera_device
+
+        cam_dev = ""
+        if getattr(self.cfg, "camera_enabled", False) and getattr(
+            self.cfg, "camera_embed", True
+        ):
+            cam_dev = resolve_camera_device(
+                getattr(self.cfg, "camera_device", "auto"))
         cmd = [
             "gst-launch-1.0",
             # do-timestamp: PipeWire buffers carry no PTS but mp4mux wants
@@ -316,7 +329,32 @@ class PortalRecorder:
             "pipewiresrc", f"fd={fd}", f"path={node}", "do-timestamp=true",
             "!", "videoconvert",
             "!", "queue",
-            "!", "openh264enc", f"bitrate={self.cfg.video_bitrate_kbps * 1000}",
+        ]
+        if cam_dev:
+            # Screen feeds compositor pad sink_0 (background); the camera
+            # branch below takes sink_1 (foreground PiP).
+            cmd += ["!", "comp."]
+            cmd += [
+                "v4l2src", f"device={cam_dev}",
+                "!", "videoconvert",
+                "!", "videoscale",
+                "!", "video/x-raw,width=320,height=240",
+                "!", "queue",
+                "!", "comp.",
+                "compositor", "name=comp",
+                "comp.sink_1::xpos=16", "comp.sink_1::ypos=16",
+                "comp.sink_1::zorder=10",
+                "!", "videoconvert",
+                "!", "queue",
+                "!", "openh264enc",
+                f"bitrate={self.cfg.video_bitrate_kbps * 1000}",
+            ]
+        else:
+            cmd += [
+                "!", "openh264enc",
+                f"bitrate={self.cfg.video_bitrate_kbps * 1000}",
+            ]
+        cmd += [
             "!", "h264parse",
             # mp4mux dies on the first frame without PTS ("Buffer has no
             # PTS"); matroskamux tolerates it, MP4 is produced via remux

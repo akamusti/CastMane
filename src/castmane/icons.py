@@ -24,6 +24,8 @@ from PySide6.QtGui import (
 # Icons stroked with a pen: monitors, gauges, frames, glyph outlines.
 _STROKED = (
     "monitor",
+    "studio",
+    "camera",
     "audio",
     "region",
     "power",
@@ -49,6 +51,25 @@ def _geometry(name: str) -> QPainterPath:
         p.lineTo(0.5, 0.85)
         p.moveTo(0.31, 0.86)
         p.lineTo(0.69, 0.86)
+    elif name == "studio":
+        # Monitor outline with a play triangle in the screen area.
+        p.addRoundedRect(QRectF(0.07, 0.14, 0.86, 0.56), 0.11, 0.11)
+        p.moveTo(0.5, 0.7)
+        p.lineTo(0.5, 0.85)
+        p.moveTo(0.31, 0.86)
+        p.lineTo(0.69, 0.86)
+        p.moveTo(0.44, 0.30)
+        p.lineTo(0.62, 0.42)
+        p.lineTo(0.44, 0.54)
+        p.closeSubpath()
+    elif name == "camera":
+        # Camera body + lens ring.
+        p.addRoundedRect(QRectF(0.12, 0.30, 0.76, 0.48), 0.10, 0.10)
+        p.moveTo(0.32, 0.30)
+        p.lineTo(0.40, 0.20)
+        p.lineTo(0.60, 0.20)
+        p.lineTo(0.68, 0.30)
+        p.addEllipse(QRectF(0.38, 0.42, 0.24, 0.24))
     elif name == "audio":
         # Waveform: the centre bar is the tallest, the ends taper off.
         for x, height in (

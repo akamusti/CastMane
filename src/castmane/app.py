@@ -37,9 +37,18 @@ from PySide6.QtGui import (
     QPixmap,
     QShortcut,
 )
+from PySide6.QtMultimedia import (
+    QAudioOutput,
+    QCamera,
+    QMediaCaptureSession,
+    QMediaDevices,
+    QMediaPlayer,
+)
+from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
     QAbstractButton,
     QButtonGroup,
+    QComboBox,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -421,6 +430,54 @@ QPushButton:disabled {{
     background-color: {BTN_DISABLED_BG};
     color: {BTN_DISABLED_TEXT};
     border-color: {HAIRLINE};
+}}
+
+/* Combo boxes (camera device picker) */
+QComboBox {{
+    background-color: {SURFACE};
+    border: 1px solid {BTN_BORDER};
+    border-radius: {RADIUS_SM}px;
+    padding: 6px 10px;
+    color: {TEXT_MAIN};
+    font-size: 12px;
+}}
+QComboBox:focus {{
+    border-color: {INK};
+}}
+QComboBox:disabled {{
+    color: {BTN_DISABLED_TEXT};
+    background-color: {BTN_DISABLED_BG};
+}}
+QComboBox QAbstractItemView {{
+    background-color: {SURFACE};
+    border: 1px solid {HAIRLINE_STRONG};
+    selection-background-color: {INK};
+    selection-color: {PRIMARY_TEXT};
+    color: {TEXT_MAIN};
+}}
+QPushButton:hover {{
+    background-color: {BTN_HOVER};
+    border-color: {HAIRLINE_STRONG};
+}}
+QPushButton:pressed {{
+    background-color: {BTN_PRESSED};
+}}
+QPushButton:disabled {{
+    background-color: {BTN_DISABLED_BG};
+    color: {BTN_DISABLED_TEXT};
+    border-color: {HAIRLINE};
+}}
+
+/* --- Studio Preview --- */
+QVideoWidget#ScreenView {{
+    background-color: #000000;
+    border: 1px solid {HAIRLINE};
+    border-radius: 8px;
+}}
+QVideoWidget#CamView {{
+    background-color: #000000;
+    border: 1px solid {HAIRLINE_STRONG};
+    border-radius: 6px;
 }}
 
 /* --- Inputs (Text & SpinBox) --- */
@@ -922,6 +979,7 @@ class MainWindow(QMainWindow):
         self._refresh_custom_enabled()
         self._refresh_idle_status()
         QTimer.singleShot(0, self._maybe_offer_recovery)
+        QTimer.singleShot(0, self._refresh_camera_preview)
 
     # --- UI Layout Construction ---
 
@@ -1014,6 +1072,7 @@ class MainWindow(QMainWindow):
         self.tab_group.setExclusive(True)
         self.tab_buttons: list[NavButton] = []
         for code, icon in (
+            ("studio", "studio"),
             ("capture", "monitor"),
             ("audio", "audio"),
             ("region", "region"),
@@ -1054,6 +1113,7 @@ class MainWindow(QMainWindow):
         layout.setSpacing(0)
 
         self.pages = QStackedWidget()
+        self.pages.addWidget(self._build_studio_page())
         self.pages.addWidget(self._build_capture_page())
         self.pages.addWidget(self._build_audio_page())
         self.pages.addWidget(self._build_region_page())
@@ -1165,6 +1225,162 @@ class MainWindow(QMainWindow):
         line = QFrame()
         line.setObjectName("Hairline")
         return line
+
+    def _build_studio_page(self) -> QWidget:
+        """OBS-style studio: live preview on top, Sources/Camera/Controls below."""
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+
+        preview_card, preview = self._card("studio_preview")
+        badge_row = QHBoxLayout()
+        badge_row.setContentsMargins(0, 0, 0, 0)
+        badge_row.setSpacing(10)
+        self.preview_badge = QLabel("READY")
+        self.preview_badge.setObjectName("Pill")
+        self.preview_badge.setProperty("state", "ready")
+        self.preview_badge.setAlignment(Qt.AlignCenter)
+        self.preview_badge.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        badge_row.addWidget(self.preview_badge)
+        self.preview_status = QLabel()
+        self.preview_status.setObjectName("Hint")
+        self.preview_status.setWordWrap(True)
+        badge_row.addWidget(self.preview_status, 1)
+        preview.addLayout(badge_row)
+
+        video_row = QHBoxLayout()
+        video_row.setContentsMargins(0, 6, 0, 0)
+        video_row.setSpacing(12)
+        self.screen_view = QVideoWidget()
+        self.screen_view.setObjectName("ScreenView")
+        self.screen_view.setMinimumHeight(240)
+        self.screen_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        video_row.addWidget(self.screen_view, 1)
+        cam_col = QVBoxLayout()
+        cam_col.setContentsMargins(0, 0, 0, 0)
+        cam_col.setSpacing(6)
+        self.cam_view = QVideoWidget()
+        self.cam_view.setObjectName("CamView")
+        self.cam_view.setFixedSize(240, 150)
+        cam_col.addWidget(self.cam_view)
+        self.cam_status = QLabel()
+        self.cam_status.setObjectName("Hint")
+        self.cam_status.setWordWrap(True)
+        self.cam_status.setFixedWidth(240)
+        cam_col.addWidget(self.cam_status)
+        cam_col.addStretch(1)
+        video_row.addLayout(cam_col)
+        preview.addLayout(video_row)
+        layout.addWidget(preview_card)
+
+        # Media backends are best-effort: preview/camera must never
+        # break the window when codecs or devices are missing.
+        self.preview_player: QMediaPlayer | None = None
+        try:
+            self.preview_player = QMediaPlayer(self)
+            self._preview_audio = QAudioOutput(self)
+            self._preview_audio.setMuted(True)
+            self.preview_player.setAudioOutput(self._preview_audio)
+            self.preview_player.setVideoOutput(self.screen_view)
+            self.preview_player.errorOccurred.connect(self._on_preview_error)
+            self.preview_player.playingChanged.connect(self._on_preview_playing)
+            self.preview_player.mediaStatusChanged.connect(
+                self._on_preview_media_status
+            )
+        except Exception:
+            self.preview_player = None
+        self._cam: QCamera | None = None
+        self._cam_session: QMediaCaptureSession | None = None
+
+        bottom = QHBoxLayout()
+        bottom.setContentsMargins(0, 0, 0, 0)
+        bottom.setSpacing(14)
+
+        sources_card, sources = self._card("sources_title")
+        self.sources_list = QListWidget()
+        self.sources_list.setMaximumHeight(150)
+        for key in ("display", "camera", "mic", "desktop"):
+            item = QListWidgetItem()
+            item.setData(Qt.UserRole, key)
+            if key == "display":
+                item.setFlags(item.flags() & ~Qt.ItemIsSelectable)
+            else:
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                item.setCheckState(Qt.Unchecked)
+            self.sources_list.addItem(item)
+        self.sources_list.itemChanged.connect(self._on_source_toggled)
+        sources.addWidget(self.sources_list)
+        self.hint_sources = QLabel()
+        self.hint_sources.setObjectName("Hint")
+        self.hint_sources.setWordWrap(True)
+        sources.addWidget(self.hint_sources)
+        bottom.addWidget(sources_card, 1)
+
+        cam_card, cam = self._card("card_camera")
+        self.lbl_camera_on = QLabel()
+        self.lbl_camera_on.setObjectName("RowLabel")
+        self.camera_sw = Switch()
+        self.camera_sw.setChecked(self.cfg.camera_enabled)
+        self.camera_sw.toggled.connect(self._on_camera_toggled)
+        cam.addWidget(self._row(self.lbl_camera_on, self._switch_wrap(self.camera_sw)))
+        self.lbl_camera_device = QLabel()
+        self.lbl_camera_device.setObjectName("RowLabel")
+        self.camera_combo = QComboBox()
+        self.camera_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.camera_combo.currentIndexChanged.connect(
+            self._on_camera_device_changed
+        )
+        cam.addWidget(self._row(self.lbl_camera_device, self.camera_combo))
+        self.lbl_camera_embed = QLabel()
+        self.lbl_camera_embed.setObjectName("RowLabel")
+        self.camera_embed_sw = Switch()
+        self.camera_embed_sw.setChecked(self.cfg.camera_embed)
+        self.camera_embed_sw.toggled.connect(self._on_camera_embed_toggled)
+        self.hint_camera_embed = QLabel()
+        self.hint_camera_embed.setObjectName("Hint")
+        cam.addWidget(
+            self._row(
+                self.lbl_camera_embed,
+                self._switch_wrap(self.camera_embed_sw),
+                self.hint_camera_embed,
+            )
+        )
+        self.hint_camera = QLabel()
+        self.hint_camera.setObjectName("Hint")
+        self.hint_camera.setWordWrap(True)
+        cam.addWidget(self.hint_camera)
+        bottom.addWidget(cam_card, 1)
+
+        ctrl_card, ctrl = self._card("card_controls")
+        self.studio_record_btn = RecordButton()
+        self.studio_record_btn.clicked.connect(self.toggle)
+        ctrl.addWidget(self.studio_record_btn)
+        self.studio_pause_btn = QPushButton()
+        self.studio_pause_btn.setObjectName("Pause")
+        self.studio_pause_btn.setCursor(Qt.PointingHandCursor)
+        self.studio_pause_btn.clicked.connect(self.toggle_pause)
+        ctrl.addWidget(self.studio_pause_btn)
+        self.studio_replay_btn = QPushButton()
+        self.studio_replay_btn.setObjectName("Pause")
+        self.studio_replay_btn.setCursor(Qt.PointingHandCursor)
+        self.studio_replay_btn.clicked.connect(self.save_replay_clip)
+        ctrl.addWidget(self.studio_replay_btn)
+        bottom.addWidget(ctrl_card, 1)
+
+        layout.addLayout(bottom)
+        layout.addStretch(1)
+        return page
+
+    @staticmethod
+    def _switch_wrap(sw: Switch) -> QWidget:
+        """Left-aligned switch in a flexible row (for _row controls)."""
+        wrap = QWidget()
+        row = QHBoxLayout(wrap)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(sw)
+        row.addStretch(1)
+        return wrap
 
     def _build_capture_page(self) -> QWidget:
         page = QWidget()
@@ -1741,10 +1957,21 @@ class MainWindow(QMainWindow):
 
         for btn, key in zip(
             self.tab_buttons,
-            ("tab_capture", "tab_audio", "tab_region", "tab_output", "tab_settings"),
+            ("tab_studio", "tab_capture", "tab_audio", "tab_region", "tab_output", "tab_settings"),
         ):
             btn.setText(_get(key, lang))
             btn.update()
+
+        self._refresh_preview_badge(self.rec.state.active)
+        self.lbl_camera_on.setText(_get("label_camera_on", lang))
+        self.lbl_camera_device.setText(_get("label_camera_device", lang))
+        self.lbl_camera_embed.setText(_get("label_camera_embed", lang))
+        self.hint_camera_embed.setText(_get("camera_embed_hint", lang))
+        self.hint_camera.setText(_get("camera_hint", lang))
+        self.hint_sources.setText(_get("audio_hint", lang))
+        self._refresh_camera_devices()
+        self._refresh_sources()
+        self._sync_studio_controls()
 
         self.lbl_source.setText(_get("label_source", lang))
         self.mode_seg.set_labels([
@@ -1949,7 +2176,7 @@ class MainWindow(QMainWindow):
         self.pages.setCurrentWidget(self.pages.widget(self._page_index(code)))
 
     def _page_index(self, code: str) -> int:
-        return ("capture", "audio", "region", "output", "settings").index(code)
+        return ("studio", "capture", "audio", "region", "output", "settings").index(code)
 
     def _setup_shortcuts(self) -> None:
         self._shortcuts: list[QShortcut] = []
@@ -2063,10 +2290,254 @@ class MainWindow(QMainWindow):
         else:
             self.setWindowTitle("CastMane")
 
+    # --- Studio: preview, sources, camera ---
+
+    def _refresh_preview_badge(self, live: bool) -> None:
+        state = "recording" if live else "ready"
+        self.preview_badge.setText(
+            self.t("pill_recording") if live else self.t("pill_ready")
+        )
+        self.preview_badge.setProperty("state", state)
+        _repolish(self.preview_badge)
+        self.preview_status.setText(
+            self.t("preview_live") if live else self.t("preview_idle")
+        )
+
+    def _begin_screen_preview(self) -> None:
+        """Play the growing `.part` file: the actual encoder output,
+        ~2 s behind the live screen. Delayed 1.5 s after start so the
+        container header exists before Qt opens it."""
+        if not self.rec.state.active or self.preview_player is None:
+            return
+        tmp = self.rec.state.tmp_path
+        if tmp is None:
+            return
+        try:
+            self.preview_player.setSource(QUrl.fromLocalFile(str(tmp)))
+            self.preview_player.play()
+            self.preview_status.setText(self.t("preview_wait"))
+        except Exception as e:  # noqa: BLE001 - preview is best-effort
+            self.preview_status.setText(
+                self.t("preview_failed").format(err=e)
+            )
+
+    def _end_screen_preview(self) -> None:
+        try:
+            if self.preview_player is not None:
+                self.preview_player.stop()
+                self.preview_player.setSource(QUrl())
+        except Exception:  # noqa: BLE001 - best-effort teardown
+            pass
+        self._refresh_preview_badge(False)
+
+    def _on_preview_error(self, _error, error_string: str = "") -> None:
+        if self.rec.state.active:
+            self.preview_status.setText(
+                self.t("preview_failed").format(err=error_string or "?")
+            )
+
+    def _on_preview_playing(self, playing: bool) -> None:
+        if playing and self.rec.state.active:
+            self._refresh_preview_badge(True)
+
+    def _on_preview_media_status(self, status) -> None:
+        # A growing file can hit a transient end-of-media; loop while
+        # the recording is still running.
+        try:
+            end = QMediaPlayer.EndOfMedia
+        except AttributeError:
+            return
+        if status == end and self.rec.state.active:
+            try:
+                if self.preview_player is not None:
+                    self.preview_player.play()
+            except Exception:  # noqa: BLE001 - best-effort
+                pass
+
+    def _refresh_camera_devices(self) -> None:
+        from .camera import list_cameras
+
+        self.camera_combo.blockSignals(True)
+        self.camera_combo.clear()
+        self.camera_combo.addItem("auto", "auto")
+        for path, label in list_cameras():
+            self.camera_combo.addItem(label if label != path else path, path)
+        idx = self.camera_combo.findData(self.cfg.camera_device)
+        self.camera_combo.setCurrentIndex(max(0, idx))
+        self.camera_combo.blockSignals(False)
+
+    def _refresh_camera_preview(self) -> None:
+        try:
+            if self._cam is not None:
+                self._cam.stop()
+        except Exception:  # noqa: BLE001 - best-effort teardown
+            pass
+        self._cam = None
+        self._cam_session = None
+        if not self.cfg.camera_enabled:
+            self.cam_view.hide()
+            self.cam_status.setText(self.t("camera_preview_off"))
+            return
+        try:
+            from .camera import resolve_camera_device
+
+            dev_path = resolve_camera_device(self.cfg.camera_device)
+            devices = QMediaDevices.videoInputs()
+            chosen = devices[0] if devices else None
+            if dev_path and devices:
+                tail = dev_path.rsplit("video", 1)[-1]
+                if tail.isdigit() and int(tail) < len(devices):
+                    chosen = devices[int(tail)]
+            cam = QCamera(chosen) if chosen is not None else QCamera()
+            session = QMediaCaptureSession()
+            session.setCamera(cam)
+            session.setVideoOutput(self.cam_view)
+            try:
+                cam.errorOccurred.connect(self._on_camera_error)
+            except Exception:  # noqa: BLE001 - older Qt without the signal
+                pass
+            cam.start()
+            self._cam = cam
+            self._cam_session = session
+            self.cam_view.show()
+            self.cam_status.setText(dev_path or self.t("camera_none"))
+        except Exception:  # noqa: BLE001 - no camera backend, show label
+            self.cam_view.hide()
+            self.cam_status.setText(self.t("camera_unavailable"))
+
+    def _on_camera_error(self, _error, _message: str = "") -> None:
+        self.cam_status.setText(self.t("camera_unavailable"))
+
+    def _on_camera_toggled(self, checked: bool) -> None:
+        self.cfg.camera_enabled = checked
+        try:
+            self.rec.cfg.camera_enabled = checked
+        except AttributeError:
+            pass
+        self.cfg.save()
+        self._refresh_camera_preview()
+        self._refresh_sources()
+
+    def _on_camera_embed_toggled(self, checked: bool) -> None:
+        self.cfg.camera_embed = checked
+        try:
+            self.rec.cfg.camera_embed = checked
+        except AttributeError:
+            pass
+        self.cfg.save()
+
+    def _on_camera_device_changed(self, index: int) -> None:
+        if index < 0:
+            return
+        from .camera import normalize_camera_device
+
+        data = self.camera_combo.itemData(index) or "auto"
+        self.cfg.camera_device = normalize_camera_device(str(data))
+        try:
+            self.rec.cfg.camera_device = self.cfg.camera_device
+        except AttributeError:
+            pass
+        self.cfg.save()
+        self._refresh_camera_preview()
+
+    def _source_item(self, key: str) -> QListWidgetItem | None:
+        for row in range(self.sources_list.count()):
+            item = self.sources_list.item(row)
+            if item.data(Qt.UserRole) == key:
+                return item
+        return None
+
+    def _refresh_sources(self) -> None:
+        from .audio import normalize_audio_mode
+
+        mode = normalize_audio_mode(self.cfg.audio_mode)
+        states = {
+            "camera": self.cfg.camera_enabled,
+            "mic": self.cfg.audio_enabled and mode in ("mic", "both"),
+            "desktop": self.cfg.audio_enabled and mode in ("desktop", "both"),
+        }
+        self.sources_list.blockSignals(True)
+        for row in range(self.sources_list.count()):
+            item = self.sources_list.item(row)
+            key = item.data(Qt.UserRole)
+            item.setText(self.t(f"source_{key}"))
+            try:
+                item.setToolTip(self.t(f"source_{key}_hint"))
+            except Exception:  # noqa: BLE001 - missing hint never breaks UI
+                pass
+            if key in states:
+                item.setCheckState(
+                    Qt.Checked if states[key] else Qt.Unchecked
+                )
+            else:
+                item.setCheckState(Qt.Checked)
+        self.sources_list.blockSignals(False)
+
+    def _on_source_toggled(self, item: QListWidgetItem) -> None:
+        key = item.data(Qt.UserRole)
+        checked = item.checkState() == Qt.Checked
+        if key == "display":
+            return
+        if key == "camera":
+            self.camera_sw.blockSignals(True)
+            self.camera_sw.setChecked(checked)
+            self.camera_sw.blockSignals(False)
+            self._on_camera_toggled(checked)
+            return
+        if key in ("mic", "desktop"):
+            mic_item = self._source_item("mic")
+            desk_item = self._source_item("desktop")
+            mic = (
+                mic_item.checkState() == Qt.Checked
+                if mic_item is not None
+                else False
+            )
+            desk = (
+                desk_item.checkState() == Qt.Checked
+                if desk_item is not None
+                else False
+            )
+            if mic and desk:
+                self.cfg.audio_enabled = True
+                self.cfg.audio_mode = "both"
+            elif mic:
+                self.cfg.audio_enabled = True
+                self.cfg.audio_mode = "mic"
+            elif desk:
+                self.cfg.audio_enabled = True
+                self.cfg.audio_mode = "desktop"
+            else:
+                self.cfg.audio_enabled = False
+            try:
+                self.rec.cfg.audio_enabled = self.cfg.audio_enabled
+                self.rec.cfg.audio_mode = self.cfg.audio_mode
+            except AttributeError:
+                pass
+            self.audio_sw.blockSignals(True)
+            self.audio_sw.setChecked(self.cfg.audio_enabled)
+            self.audio_sw.blockSignals(False)
+            self.audio_mode_seg.set_current_data(self.cfg.audio_mode)
+            self._refresh_audio_mode_hint()
+            self.cfg.save()
+            self._refresh_sources()
+
+    def _sync_studio_controls(self) -> None:
+        recording = self.rec.state.active
+        self.studio_record_btn.setText(
+            self.t("rec_stop") if recording else self.t("rec_start")
+        )
+        self.studio_record_btn.set_recording(recording)
+        self.studio_pause_btn.setText(
+            self.t("resume") if self.rec.state.paused else self.t("pause")
+        )
+        self.studio_pause_btn.setEnabled(recording)
+        self.studio_replay_btn.setText(self.t("replay_save"))
+
     # --- Recording Control ---
 
     def _set_recording_ui(self, recording: bool) -> None:
         self.record_btn.set_recording(recording)
+        self.studio_record_btn.set_recording(recording)
         self.timer_lbl.setProperty("recording", recording)
         _repolish(self.timer_lbl)
         self._refresh_state_dot()
@@ -2091,6 +2562,12 @@ class MainWindow(QMainWindow):
         self.output_edit.setEnabled(enabled)
         self.browse_btn.setEnabled(enabled)
         self.prefix_edit.setEnabled(enabled)
+        # Studio sources/camera reconfigure the next pipeline, so they
+        # are locked while the encoder runs (like OBS locks inputs).
+        self.sources_list.setEnabled(enabled)
+        self.camera_sw.setEnabled(enabled)
+        self.camera_combo.setEnabled(enabled)
+        self.camera_embed_sw.setEnabled(enabled)
         if enabled:
             self._refresh_custom_enabled()
         else:
@@ -2161,6 +2638,8 @@ class MainWindow(QMainWindow):
         self.pause_btn.setText(self.t("pause"))
         self._set_inputs_enabled(False)
         self._set_recording_ui(True)
+        self._sync_studio_controls()
+        QTimer.singleShot(1500, self._begin_screen_preview)
         self.timer.start()
         if self.cfg.auto_stop_min > 0:
             self._autostop_remaining_ms = self.cfg.auto_stop_min * 60 * 1000
@@ -2178,9 +2657,11 @@ class MainWindow(QMainWindow):
         self._countdown_left = 0
         out = self.rec.stop()
         self.timer.stop()
+        self._end_screen_preview()
         self._set_inputs_enabled(True)
         self.pause_btn.setEnabled(False)
         self.pause_btn.setText(self.t("pause"))
+        self._sync_studio_controls()
         if out:
             self._clear_error()
             self.status_lbl.setText(self.t("saved").format(out=out))
@@ -2223,6 +2704,7 @@ class MainWindow(QMainWindow):
             self._refresh_state_dot()
             self._refresh_tray()
             self._refresh_title()
+            self._sync_studio_controls()
         except Exception as e:
             self._fail(self.t("pause_error").format(err=e))
 
@@ -2665,6 +3147,8 @@ class MainWindow(QMainWindow):
             self.pause_btn.setText(self.t("pause"))
             self._set_inputs_enabled(True)
             self._set_recording_ui(False)
+            self._end_screen_preview()
+            self._sync_studio_controls()
             self.timer.stop()
 
     def closeEvent(self, event) -> None:
@@ -2680,6 +3164,16 @@ class MainWindow(QMainWindow):
             return
         self._countdown_timer.stop()
         self._autostop_timer.stop()
+        try:
+            if self._cam is not None:
+                self._cam.stop()
+        except Exception:  # noqa: BLE001 - best-effort teardown
+            pass
+        try:
+            if self.preview_player is not None:
+                self.preview_player.stop()
+        except Exception:  # noqa: BLE001 - best-effort teardown
+            pass
         if self.rec.state.active:
             self.rec.stop()
         self.cfg.save()

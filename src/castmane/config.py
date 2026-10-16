@@ -149,6 +149,13 @@ class AppConfig:
     # user can save a moment after it happened.
     replay_enabled: bool = False
     replay_seconds: int = REPLAY_DEFAULT_S
+    # Camera source (OBS-style): picture-in-picture overlay.
+    # camera_enabled shows the camera in the Studio preview; camera_embed
+    # additionally burns it into the recorded file (bottom-right corner).
+    # camera_device "auto" resolves to the first /dev/video* node.
+    camera_enabled: bool = False
+    camera_embed: bool = True
+    camera_device: str = "auto"
     # Configurable shortcuts (Settings page). Defaults match the old
     # hardcoded R / P / F (+ Space alias for record, T for replay save).
     shortcut_record: str = "R"
@@ -172,6 +179,8 @@ class AppConfig:
     auto_stop_min: int = 0
 
     def __post_init__(self) -> None:
+        from .camera import normalize_camera_device
+
         self.language = normalize(self.language)
         self.theme = normalize_theme(self.theme)
         self.audio_mode = normalize_audio_mode(self.audio_mode)
@@ -186,6 +195,9 @@ class AppConfig:
         self.desktop_gain = clamp_gain(self.desktop_gain)
         self.replay_seconds = normalize_replay_seconds(self.replay_seconds)
         self.replay_enabled = bool(self.replay_enabled)
+        self.camera_enabled = bool(self.camera_enabled)
+        self.camera_embed = bool(self.camera_embed)
+        self.camera_device = normalize_camera_device(self.camera_device)
         self.shortcut_record = normalize_shortcut(self.shortcut_record, "R")
         self.shortcut_pause = normalize_shortcut(self.shortcut_pause, "P")
         self.shortcut_replay = normalize_shortcut(self.shortcut_replay, "T")
@@ -276,6 +288,9 @@ class AppConfig:
             "desktop_gain": self.desktop_gain,
             "replay_enabled": self.replay_enabled,
             "replay_seconds": self.replay_seconds,
+            "camera_enabled": self.camera_enabled,
+            "camera_embed": self.camera_embed,
+            "camera_device": self.camera_device,
             "shortcut_record": self.shortcut_record,
             "shortcut_pause": self.shortcut_pause,
             "shortcut_replay": self.shortcut_replay,
@@ -323,6 +338,9 @@ class AppConfig:
                 mic_gain=float(data.get("mic_gain", legacy_gain)),
                 desktop_gain=float(data.get("desktop_gain", legacy_gain)),
                 replay_enabled=bool(data.get("replay_enabled", False)),
+                camera_enabled=bool(data.get("camera_enabled", False)),
+                camera_embed=bool(data.get("camera_embed", True)),
+                camera_device=data.get("camera_device", "auto"),
                 replay_seconds=normalize_replay_seconds(
                     data.get("replay_seconds", REPLAY_DEFAULT_S)),
                 shortcut_record=normalize_shortcut(

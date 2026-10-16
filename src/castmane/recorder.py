@@ -149,10 +149,27 @@ class FfmpegX11Recorder:
             "-framerate", str(self.cfg.fps),
             "-i", display,
         ]
+        # Camera picture-in-picture (OBS-style): a v4l2 input burned into
+        # the bottom-right corner via overlay. Preview-only mode adds no
+        # input here (the Studio preview shows the camera separately).
+        from .camera import resolve_camera_device
+
+        cam_dev = ""
+        if getattr(self.cfg, "camera_enabled", False) and getattr(
+            self.cfg, "camera_embed", True
+        ):
+            cam_dev = resolve_camera_device(
+                getattr(self.cfg, "camera_device", "auto"))
+        n_video_inputs = 1 + (1 if cam_dev else 0)
+        ai = n_video_inputs  # first audio input index (shifts with camera)
+        if cam_dev:
+            cmd += ["-f", "v4l2", "-video_size", "320x240", "-i", cam_dev]
         if self.cfg.audio_enabled:
             # Audio mode selects the PulseAudio input(s):
             # "mic" -> default source, "desktop" -> .monitor device,
             # "both" -> two inputs mixed with amix.
+            # NOTE: input indices shift by +1 when the camera input above
+            # occupies slot 1 (`ai` already accounts for this).
             mode = normalize_audio_mode(self.cfg.audio_mode)
             if mode == "desktop":
                 src = resolve_desktop_source(self.cfg.audio_desktop_source)
@@ -169,34 +186,76 @@ class FfmpegX11Recorder:
             "-c:v", self.cfg.video_codec,
             "-pix_fmt", "yuv420p",
         ]
-        if self.cfg.audio_enabled:
-            cmd += ["-c:a", "aac", "-b:a", f"{self.cfg.audio_bitrate_kbps}k"]
-            mode = normalize_audio_mode(self.cfg.audio_mode)
-            mic_gain, desk_gain = effective_gains(self.cfg)
-            if mode == "both":
-                # Mix mic (1:a) + desktop (2:a) down to one AAC track.
-                # Per-source gain keeps mic/desktop balanced (OBS-style mixer).
-                parts = []
-                if mic_gain != 1.0:
-                    parts.append(f"[1:a]volume={mic_gain}[a0]")
-                else:
-                    parts.append("[1:a]anull[a0]")
-                if desk_gain != 1.0:
-                    parts.append(f"[2:a]volume={desk_gain}[a1]")
-                else:
-                    parts.append("[2:a]anull[a1]")
-                parts.append(
-                    "[a0][a1]amix=inputs=2:duration=longest:"
-                    "dropout_transition=0[aout]"
-                )
-                filt = ";".join(parts)
-                cmd += ["-filter_complex", filt, "-map", "0:v", "-map", "[aout]"]
-            # Software gain: no filter added at 1.0.
-            elif mode == "desktop":
-                if desk_gain != 1.0:
-                    cmd += ["-filter:a", f"volume={desk_gain}"]
-            elif mic_gain != 1.0:
-                cmd += ["-filter:a", f"volume={mic_gain}"]
+        # Filter stage. Without a camera the historic layout is kept
+        # verbatim (single-source gain via `-filter:a`, no forced maps);
+        # with a camera everything composes in one `-filter_complex`
+        # (overlay + optional audio mix/gain) with explicit maps.
+        if not cam_dev:
+            if self.cfg.audio_enabled:
+                cmd += ["-c:a", "aac", "-b:a", f"{self.cfg.audio_bitrate_kbps}k"]
+                mode = normalize_audio_mode(self.cfg.audio_mode)
+                mic_gain, desk_gain = effective_gains(self.cfg)
+                if mode == "both":
+                    # Mix mic (1:a) + desktop (2:a) down to one AAC track.
+                    # Per-source gain keeps mic/desktop balanced (OBS-style mixer).
+                    parts = []
+                    if mic_gain != 1.0:
+                        parts.append(f"[1:a]volume={mic_gain}[a0]")
+                    else:
+                        parts.append("[1:a]anull[a0]")
+                    if desk_gain != 1.0:
+                        parts.append(f"[2:a]volume={desk_gain}[a1]")
+                    else:
+                        parts.append("[2:a]anull[a1]")
+                    parts.append(
+                        "[a0][a1]amix=inputs=2:duration=longest:"
+                        "dropout_transition=0[aout]"
+                    )
+                    filt = ";".join(parts)
+                    cmd += ["-filter_complex", filt, "-map", "0:v", "-map", "[aout]"]
+                # Software gain: no filter added at 1.0.
+                elif mode == "desktop":
+                    if desk_gain != 1.0:
+                        cmd += ["-filter:a", f"volume={desk_gain}"]
+                elif mic_gain != 1.0:
+                    cmd += ["-filter:a", f"volume={mic_gain}"]
+        else:
+            filters: list[str] = [
+                "[1:v]scale=320:240,format=yuv420p[cam];"
+                "[0:v][cam]overlay=W-w-10:H-h-10,format=yuv420p[vout]"
+            ]
+            a_out: str | None = None
+            if self.cfg.audio_enabled:
+                cmd += ["-c:a", "aac", "-b:a", f"{self.cfg.audio_bitrate_kbps}k"]
+                mode = normalize_audio_mode(self.cfg.audio_mode)
+                mic_gain, desk_gain = effective_gains(self.cfg)
+                if mode == "both":
+                    parts = []
+                    if mic_gain != 1.0:
+                        parts.append(f"[{ai}:a]volume={mic_gain}[a0]")
+                    else:
+                        parts.append(f"[{ai}:a]anull[a0]")
+                    if desk_gain != 1.0:
+                        parts.append(f"[{ai + 1}:a]volume={desk_gain}[a1]")
+                    else:
+                        parts.append(f"[{ai + 1}:a]anull[a1]")
+                    parts.append(
+                        "[a0][a1]amix=inputs=2:duration=longest:"
+                        "dropout_transition=0[aout]"
+                    )
+                    filters.append(";".join(parts))
+                    a_out = "[aout]"
+                elif mode == "desktop":
+                    if desk_gain != 1.0:
+                        filters.append(f"[{ai}:a]volume={desk_gain}[aout]")
+                        a_out = "[aout]"
+                elif mic_gain != 1.0:
+                    filters.append(f"[{ai}:a]volume={mic_gain}[aout]")
+                    a_out = "[aout]"
+            cmd += ["-filter_complex", ";".join(filters)]
+            cmd += ["-map", "[vout]"]
+            if self.cfg.audio_enabled:
+                cmd += ["-map", a_out if a_out else f"{ai}:a"]
         if normalize_format(self.cfg.output_format) == "mkv":
             # Matroska needs no movflags: it is streamable by design,
             # so a killed recording stays playable as-is.
