@@ -52,7 +52,8 @@ def _x11_cmd(**kw):
 
 def test_x11_mic_single_input():
     cmd = _x11_cmd(audio_mode="mic")
-    assert cmd.count("-f") == 2  # x11grab + one pulse input
+    # x11grab + one pulse input + the explicit output muxer for `.part`
+    assert cmd.count("-f") == 3
     assert "default" in cmd
     assert "-filter_complex" not in cmd
 

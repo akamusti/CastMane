@@ -256,13 +256,18 @@ class FfmpegX11Recorder:
             cmd += ["-map", "[vout]"]
             if self.cfg.audio_enabled:
                 cmd += ["-map", a_out if a_out else f"{ai}:a"]
+        # The staging file name ends in `.part`, which hides the real
+        # container from ffmpeg's extension-based muxer guess. Without an
+        # explicit `-f` the encoder aborts with rc=234 before writing a
+        # single frame, so the muxer is always declared here.
         if normalize_format(self.cfg.output_format) == "mkv":
             # Matroska needs no movflags: it is streamable by design,
             # so a killed recording stays playable as-is.
-            cmd += [str(tmp)]
+            cmd += ["-f", "matroska", str(tmp)]
         else:
             cmd += [
                 "-movflags", self.cfg.movflags,
+                "-f", "mp4",
                 str(tmp),
             ]
         return cmd

@@ -1,9 +1,11 @@
 """Output format, custom quality preset, recent-recordings list."""
+import os
 import time
+from pathlib import Path
 
 from castmane.config import AppConfig, normalize_format
 from castmane.i18n import STRINGS
-from castmane.recorder import list_recent_recordings
+from castmane.recorder import finalize_part, list_recent_recordings
 
 
 def test_format_strings_translated():
@@ -72,6 +74,62 @@ def test_build_cmd_mkv_has_no_movflags(tmp_path):
     assert str(tmp_path / "take.mkv.part") in cmd
     rec_mp4 = FfmpegX11Recorder(AppConfig(output_dir=tmp_path))
     assert "-movflags" in rec_mp4.build_cmd(tmp_path / "take.mp4.part")
+
+
+def test_build_cmd_declares_explicit_muxer(tmp_path):
+    """Regression: the `.part` staging name defeats ffmpeg's extension-based
+    muxer guess, so the container must be declared with `-f` or the encoder
+    aborts with rc=234 and no file is ever produced."""
+    from castmane.recorder import FfmpegX11Recorder
+
+    rec_mp4 = FfmpegX11Recorder(AppConfig(output_dir=tmp_path))
+    cmd = rec_mp4.build_cmd(tmp_path / "take.mp4.part")
+    assert cmd[-1] == str(tmp_path / "take.mp4.part")
+    # The output muxer is the last `-f` in the command.
+    last_f = [i for i, c in enumerate(cmd) if c == "-f"][-1]
+    assert cmd[last_f + 1] == "mp4"
+
+    rec_mkv = FfmpegX11Recorder(AppConfig(output_dir=tmp_path, output_format="mkv"))
+    cmd_mkv = rec_mkv.build_cmd(tmp_path / "take.mkv.part")
+    assert cmd_mkv[-1] == str(tmp_path / "take.mkv.part")
+    last_f = [i for i, c in enumerate(cmd_mkv) if c == "-f"][-1]
+    assert cmd_mkv[last_f + 1] == "matroska"
+
+
+def test_x11_recording_produces_a_playable_file(tmp_path):
+    """End-to-end: a one-second X11 capture must yield a non-empty file that
+    survives the crash-safe `.part` -> final promotion."""
+    import shutil
+    import subprocess
+
+    import pytest
+
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        pytest.skip("ffmpeg/ffprobe not installed")
+    if not Path(os.environ.get("DISPLAY", "")) and not Path("/tmp/.X11-unix").exists():
+        pytest.skip("no X11 display available")
+
+    from castmane.recorder import FfmpegX11Recorder
+
+    rec = FfmpegX11Recorder(AppConfig(output_dir=tmp_path, filename_prefix="e2e"))
+    cmd = rec.build_cmd(tmp_path / "e2e.mp4.part")
+    # `-t 1` keeps the probe fast; everything else is the real command.
+    proc = subprocess.run(
+        cmd[:-1] + ["-t", "1", cmd[-1]], capture_output=True, timeout=60
+    )
+    staging = tmp_path / "e2e.mp4.part"
+    assert proc.returncode == 0, proc.stderr.decode(errors="replace")[-500:]
+    assert staging.exists() and staging.stat().st_size > 0
+
+    final = finalize_part(staging, tmp_path / "e2e.mp4")
+    assert final == tmp_path / "e2e.mp4" and final.exists()
+
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "stream=codec_name",
+         "-of", "csv=p=0", str(final)],
+        capture_output=True, timeout=30,
+    )
+    assert probe.returncode == 0 and probe.stdout.strip()
 
 
 def test_open_button_works_without_explicit_selection(tmp_path, monkeypatch):
