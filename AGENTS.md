@@ -99,6 +99,29 @@ grep -rniE "api[_-]?key|secret|token|password|passwd|bearer" src tests --include
 - Ajan kendiliğinden minor/major'a zıplamaz; emin değilse patch'te kalır ve kullanıcıya sorar.
 - Version bump'ta `pyproject.toml` + `src/castmane/__init__.py:4` senkron tutulur.
 
+## Release yayınlama (kalıcı kural)
+
+PR'lar merge edildikten sonra, kullanıcı istediğinde release şu sırayla yapılır:
+
+1. **Doğrula.** `pytest -q` + `ruff check` temiz olmalı; `pyproject.toml` ile
+   `src/castmane/__init__.py:4` aynı sürümü göstermeli.
+2. **Build.** `./packaging/build-appimage.sh` → `dist/CastMane-<version>-x86_64.AppImage`.
+   Script `.venv-appimage` kullanır, normal `.venv`'i kirletmez.
+   `appimagetool` `packaging/tools/` altında cache'lenir; zaten varsa yeniden indirme.
+3. **Smoke test.** `./dist/CastMane-*.AppImage --help` ve
+   `QT_QPA_PLATFORM=offscreen ./dist/CastMane-*.AppImage` ile açılışı doğrula.
+4. **Yayınla.**
+   ```sh
+   gh release create v<version> dist/CastMane-<version>-x86_64.AppImage \
+     --title "CastMane v<version>" --notes-file <notlar>
+   ```
+   Tag biçimi `v<version>` (sürümün başına `v` ile: `v0.9.10`).
+5. **Notlar:** Soğuk bir changelog değil, **ne yapıldığını anlatan** bir metin yaz. Her düzeltme
+   için: hata nasıl bulundu, neden oluştu, ne değişti, gerçek ortamda nasıl doğrulandı (ölçüm
+   rakamlarıyla), ve kullanıcıya etkisi ne. Bilinen/çözülmemiş sorunları açıkça belirt.
+   Kullanıcı bunu "ne yaptığımı anlat" diye özellikle istedi — teknik liste değil, anlatı.
+6. `.AppImage`, `AppDir/`, `build/`, `dist/` commit'e **giremez**, sadece release asset'i olur.
+
 ## İletişim
 
 - Kullanıcıyla hep Türkçe konuş. Kısa ve net ol.
