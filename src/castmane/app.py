@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import threading
 from pathlib import Path
 
 from PySide6.QtCore import (
@@ -47,6 +48,7 @@ from PySide6.QtMultimedia import (
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
     QAbstractButton,
+    QApplication,
     QButtonGroup,
     QComboBox,
     QFileDialog,
@@ -922,6 +924,10 @@ class MainWindow(QMainWindow):
     LABEL_COL = 152
     OUT_PATH_PX = 250
 
+    # Emitted from the finalize worker (any thread); the slot runs on the UI
+    # thread, so the result is applied without polling the 500 ms tick.
+    _bg_finished = Signal()
+
     def __init__(self, cfg: AppConfig | None = None) -> None:
         super().__init__()
         self.cfg = cfg or AppConfig()
@@ -971,6 +977,17 @@ class MainWindow(QMainWindow):
         self._autostop_remaining_ms = 0
         self._disk_check_counter = 0
         self._quit_requested = False
+        # Background finalizer: stopping the encoder also runs the crash-safe
+        # MKV->MP4 remux, which can block for minutes. Running it on the UI
+        # thread froze the whole window, so it runs on a worker and `tick`
+        # picks the result up when it is done.
+        self._bg_thread: threading.Thread | None = None
+        self._bg_kind = ""  # "stop" | "replay"
+        self._bg_result: Path | None = None
+        self._bg_error = ""
+        self._bg_reason = ""
+        self._bg_quit_after = False
+        self._bg_finished.connect(self._poll_background)
         self._setup_shortcuts()
         self._setup_tray()
 
@@ -2569,6 +2586,9 @@ class MainWindow(QMainWindow):
         self._set_region_enabled(enabled)
 
     def toggle(self) -> None:
+        if self._bg_thread is not None:
+            # Still finalizing the previous take; a new one would fight it.
+            return
         if self._countdown_timer.isActive():
             self._countdown_timer.stop()
             self._countdown_left = 0
@@ -2643,19 +2663,81 @@ class MainWindow(QMainWindow):
         self._refresh_tray()
         self._refresh_title()
 
-    def _stop_recording(self, reason: str = "") -> None:
+    def _stop_recording(self, reason: str = "", quit_after: bool = False) -> None:
+        """Ask the encoder to stop. The blocking part (graceful shutdown plus
+        the crash-safe remux) runs on a worker thread; `tick()` applies the
+        result, so the window stays responsive while finalizing."""
+        if self._bg_thread is not None:
+            return
         self._countdown_timer.stop()
         self._autostop_timer.stop()
         self._autostop_remaining_ms = 0
         self._countdown_left = 0
-        out = self.rec.stop()
-        self.timer.stop()
         self._end_screen_preview()
-        self._set_inputs_enabled(True)
         self.pause_btn.setEnabled(False)
         self.pause_btn.setText(self.t("pause"))
         self._sync_studio_controls()
-        if out:
+        self.record_btn.setEnabled(False)
+        self.replay_btn.setEnabled(False)
+        self.studio_replay_btn.setEnabled(False)
+        self.status_lbl.setText(self.t("finalizing"))
+        self._refresh_tray()
+        self._refresh_title()
+        self._bg_kind = "stop"
+        self._bg_result = None
+        self._bg_error = ""
+        self._bg_reason = reason
+        self._bg_quit_after = quit_after
+        self._bg_thread = threading.Thread(
+            target=self._stop_worker, args=(self.rec,), daemon=True
+        )
+        self._bg_thread.start()
+
+    def _stop_worker(self, rec) -> None:
+        """Worker: never touches widgets."""
+        try:
+            self._bg_result = rec.stop()
+        except Exception as e:  # noqa: BLE001 - reported on the UI thread
+            self._bg_error = str(e)
+        finally:
+            self._bg_finished.emit()
+
+    def _replay_worker(self, segments: list[Path], dest: Path) -> None:
+        """Worker: concat can block for a while, keep the UI alive."""
+        from . import replay as replay_mod
+
+        try:
+            self._bg_result = dest if replay_mod.save_replay(segments, dest) else None
+        except Exception as e:  # noqa: BLE001 - reported on the UI thread
+            self._bg_error = str(e)
+        finally:
+            self._bg_finished.emit()
+
+    def _poll_background(self) -> bool:
+        """`tick()` hook: true while a worker is still running."""
+        thread = self._bg_thread
+        if thread is None:
+            return False
+        if thread.is_alive():
+            return True
+        self._bg_thread = None
+        kind, self._bg_kind = self._bg_kind, ""
+        if kind == "stop":
+            self._apply_stop_result()
+        elif kind == "replay":
+            self._apply_replay_result()
+        return False
+
+    def _apply_stop_result(self) -> None:
+        self.timer.stop()
+        self._set_inputs_enabled(True)
+        out = self._bg_result
+        reason, self._bg_reason = self._bg_reason, ""
+        quit_after, self._bg_quit_after = self._bg_quit_after, False
+        if self._bg_error:
+            self._fail(self.t("error_prefix").format(err=self._bg_error))
+            self._bg_error = ""
+        elif out:
             self._clear_error()
             self.status_lbl.setText(self.t("saved").format(out=out))
             self._refresh_recent()
@@ -2669,12 +2751,33 @@ class MainWindow(QMainWindow):
                 self.t("error_prefix").format(err=self.rec.state.last_error)
             )
         self.record_btn.setText(self.t("rec_start"))
+        self.record_btn.setEnabled(True)
+        self.replay_btn.setEnabled(True)
+        self.studio_replay_btn.setEnabled(True)
         self._set_recording_ui(False)
+        self._sync_studio_controls()
         self._refresh_tray()
         self._refresh_title()
+        if quit_after:
+            QApplication.quit()
+
+    def _apply_replay_result(self) -> None:
+        out = self._bg_result
+        self.replay_btn.setEnabled(True)
+        self.studio_replay_btn.setEnabled(True)
+        if self._bg_error:
+            self._fail(self.t("error_prefix").format(err=self._bg_error))
+            self._bg_error = ""
+        elif out is not None:
+            self._clear_error()
+            self.status_lbl.setText(self.t("replay_saved").format(out=out.name))
+            self._refresh_recent()
+            self._notify(self.t("replay_saved").format(out=out.name))
+        else:
+            self._fail(self.t("replay_empty"))
 
     def toggle_pause(self) -> None:
-        if not self.rec.state.active:
+        if not self.rec.state.active or self._bg_thread is not None:
             return
         try:
             if self.rec.state.paused:
@@ -3039,14 +3142,20 @@ class MainWindow(QMainWindow):
         if not picked:
             self._fail(self.t("replay_empty"))
             return
+        if self._bg_thread is not None:
+            return
         dest = self.cfg.next_output_path()
-        if replay_mod.save_replay(picked, dest):
-            self._clear_error()
-            self.status_lbl.setText(self.t("replay_saved").format(out=dest.name))
-            self._refresh_recent()
-            self._notify(self.t("replay_saved").format(out=dest.name))
-        else:
-            self._fail(self.t("replay_empty"))
+        # Concat can block for a while: run it off the UI thread.
+        self.status_lbl.setText(self.t("finalizing"))
+        self.replay_btn.setEnabled(False)
+        self.studio_replay_btn.setEnabled(False)
+        self._bg_kind = "replay"
+        self._bg_result = None
+        self._bg_error = ""
+        self._bg_thread = threading.Thread(
+            target=self._replay_worker, args=(picked, dest), daemon=True
+        )
+        self._bg_thread.start()
 
     def _on_output_dir_changed(self, text: str) -> None:
         value = text.strip() or str(Path.home() / "Videos" / "CastMane")
@@ -3122,6 +3231,8 @@ class MainWindow(QMainWindow):
     # --- Ticking & Teardown ---
 
     def tick(self) -> None:
+        if self._poll_background():
+            return
         if self.rec.state.active:
             total = int(self.rec.elapsed)
             self.timer_lbl.setText(
@@ -3167,6 +3278,14 @@ class MainWindow(QMainWindow):
                 self.preview_player.stop()
         except Exception:  # noqa: BLE001 - best-effort teardown
             pass
+        if self.rec.state.active and self._bg_thread is None:
+            # Same freeze as the Stop button (graceful shutdown + remux), so
+            # it goes through the worker as well. `timer` is kept running so
+            # `tick()` can apply the result and quit us.
+            event.ignore()
+            self.timer.start()
+            self._stop_recording(reason="quit", quit_after=True)
+            return
         if self.rec.state.active:
             self.rec.stop()
         self.cfg.save()
