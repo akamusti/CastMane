@@ -130,7 +130,7 @@ def test_studio_page_layout():
             for r in range(w.sources_list.count())]
     assert keys == ["display", "camera", "mic", "desktop"]
     assert w.preview_badge.text() == w.t("pill_ready")
-    assert w.studio_record_btn.text() == w.t("rec_start")
+    assert w.record_btn.text() == w.t("rec_start")
 
 
 def test_sources_camera_toggle_updates_config():

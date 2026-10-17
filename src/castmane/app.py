@@ -1356,9 +1356,6 @@ class MainWindow(QMainWindow):
         bottom.addWidget(cam_card, 1)
 
         ctrl_card, ctrl = self._card("card_controls")
-        self.studio_record_btn = RecordButton()
-        self.studio_record_btn.clicked.connect(self.toggle)
-        ctrl.addWidget(self.studio_record_btn)
         self.studio_pause_btn = QPushButton()
         self.studio_pause_btn.setObjectName("Pause")
         self.studio_pause_btn.setCursor(Qt.PointingHandCursor)
@@ -2524,10 +2521,6 @@ class MainWindow(QMainWindow):
 
     def _sync_studio_controls(self) -> None:
         recording = self.rec.state.active
-        self.studio_record_btn.setText(
-            self.t("rec_stop") if recording else self.t("rec_start")
-        )
-        self.studio_record_btn.set_recording(recording)
         self.studio_pause_btn.setText(
             self.t("resume") if self.rec.state.paused else self.t("pause")
         )
@@ -2538,7 +2531,6 @@ class MainWindow(QMainWindow):
 
     def _set_recording_ui(self, recording: bool) -> None:
         self.record_btn.set_recording(recording)
-        self.studio_record_btn.set_recording(recording)
         self.timer_lbl.setProperty("recording", recording)
         _repolish(self.timer_lbl)
         self._refresh_state_dot()
