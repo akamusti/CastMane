@@ -91,6 +91,33 @@ def list_recent_recordings(output_dir: Path, limit: int = 10) -> list[Path]:
         return []
 
 
+def capture_input_args(cfg: AppConfig, interactive: bool = False) -> list[str]:
+    """X11 screen-capture input arguments, shared by the main recording and
+    the replay-buffer encoder so both grab the exact same source.
+
+    Video only (no audio inputs): the replay encoder is a second, cheap
+    stream and its segments are joined without re-encoding. `interactive`
+    adds `-select_region`; only the main recording asks for it, since a
+    second encoder must not pop another crosshair prompt.
+    """
+    args: list[str] = []
+    if cfg.window_id > 0:
+        args += ["-window_id", str(cfg.window_id)]
+    args += ["-f", "x11grab"]
+    args += ["-draw_mouse", "1" if cfg.show_cursor else "0"]
+    if cfg.region_w > 0 and cfg.region_h > 0:
+        args += [
+            "-video_size", f"{cfg.region_w}x{cfg.region_h}",
+            "-grab_x", str(cfg.region_x),
+            "-grab_y", str(cfg.region_y),
+            "-show_region", "1",
+        ]
+    elif interactive and cfg.capture_mode == "ask" and cfg.window_id <= 0:
+        args += ["-select_region", "1", "-show_region", "1"]
+    args += ["-framerate", str(cfg.fps), "-i", os.environ.get("DISPLAY", ":0")]
+    return args
+
+
 @dataclass
 class RecordingState:
     active: bool = False
@@ -126,29 +153,8 @@ class FfmpegX11Recorder:
         )
         from .config import normalize_format
 
-        display = os.environ.get("DISPLAY", ":0")
         cmd = ["ffmpeg", "-y"]
-        if self.cfg.window_id > 0:
-            # Single window: X11 window id (e.g. from `xwininfo`).
-            cmd += ["-window_id", str(self.cfg.window_id)]
-        cmd += ["-f", "x11grab"]
-        # Mouse cursor overlay (ffmpeg x11grab flag).
-        cmd += ["-draw_mouse", "1" if self.cfg.show_cursor else "0"]
-        if self.cfg.region_w > 0 and self.cfg.region_h > 0:
-            # Fixed region: WxH + top-left corner.
-            cmd += [
-                "-video_size", f"{self.cfg.region_w}x{self.cfg.region_h}",
-                "-grab_x", str(self.cfg.region_x),
-                "-grab_y", str(self.cfg.region_y),
-                "-show_region", "1",
-            ]
-        elif self.cfg.capture_mode == "ask" and self.cfg.window_id <= 0:
-            # Interactive: the user draws the frame with the mouse.
-            cmd += ["-select_region", "1", "-show_region", "1"]
-        cmd += [
-            "-framerate", str(self.cfg.fps),
-            "-i", display,
-        ]
+        cmd += capture_input_args(self.cfg, interactive=True)
         # Camera picture-in-picture (OBS-style): a v4l2 input burned into
         # the bottom-right corner via overlay. Preview-only mode adds no
         # input here (the Studio preview shows the camera separately).

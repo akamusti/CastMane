@@ -123,28 +123,36 @@ def _resolve_call(iface, *candidates):
 
 
 def _pulsesrc_branch(
-    device: str, sink: str, gain: float = 1.0, bitrate: int = 0
+    device: str, sink: str | list[str], gain: float = 1.0, bitrate: int = 0,
+    link: bool = True,
 ) -> list[str]:
     """One `pulsesrc ... ! <sink>` capture branch.
 
     `device` "" or "default" means "PulseAudio default" (no device property).
     Software gain: monitor (system sound) input is usually much quieter than
     mic input; compensate with volume >1.0 (nothing added at 1.0, pipeline
-    unchanged). When `sink` is "mux." the branch carries its own AAC encoder
-    (single-source mode, needs `bitrate`); otherwise it feeds an audiomixer
-    pad and the shared encoder lives downstream of the mixer.
+    unchanged). When `sink` is the recording mux the branch carries its own AAC
+    encoder (single-source mode, needs `bitrate`); otherwise it feeds the
+    shared mixer downstream. `sink` is a list so the replay branch can fork it.
+
+    `link=True` prefixes the branch with "!" so it chains onto the previous
+    element. Pass False when the branch has to open its own pipeline branch:
+    a source that follows the replay `splitmuxsink` may not be attached with
+    "!", because a sink has no output pad to continue from (gst-launch then
+    fails with "erroneous pipeline: syntax error").
     """
-    branch: list[str] = ["pulsesrc"]
+    branch: list[str] = (["!"] if link else []) + ["pulsesrc"]
     if device and device != "default":
         branch.append(f"device={device}")
     branch += ["!", "audioconvert", "!", "audioresample"]
     if gain != 1.0:
         branch += ["!", "volume", f"volume={gain}"]
     branch += ["!", "queue", "!"]
-    if sink == "mux.":
-        branch += ["avenc_aac", f"bitrate={bitrate}", "!", "aacparse", "!", sink]
-    else:
-        branch += [sink]
+    if isinstance(sink, str):
+        sink = [sink]
+    if sink == ["mux."]:
+        branch += ["avenc_aac", f"bitrate={bitrate}", "!", "aacparse", "!"]
+    branch += sink
     return branch
 
 
@@ -163,6 +171,10 @@ class PortalRecorder:
         self._result: dict = {}
         self._session_thread: threading.Thread | None = None
         self._pw_fd = -1
+        # PipeWire node/fd of the live session, kept so the replay encoder can
+        # attach to the very same stream (no second permission dialog).
+        self._stream_node = -1
+        self._stream_fd = -1
 
     @property
     def elapsed(self) -> float:
@@ -191,6 +203,18 @@ class PortalRecorder:
         self.state.paused = False
         self.state.pause_started = 0.0
 
+    def _replay_target(self) -> tuple[Path | None, int]:
+        """Replay ring location for the main pipeline, empty when the buffer
+        is off. The ring lives next to the recordings and is pruned after
+        every take (see replay.ReplayRecorder.stop)."""
+        if not getattr(self.cfg, "replay_enabled", False):
+            return None, 0
+        from ..replay import replay_dir, segment_wrap_count
+
+        return replay_dir(self.cfg.output_dir), segment_wrap_count(
+            self.cfg.replay_seconds
+        )
+
     # -- public API --
 
     def start(self) -> Path:
@@ -201,6 +225,9 @@ class PortalRecorder:
         # remuxed to MP4 on stop when the target is MP4. Intermediate: X.mkv.part
         tmp_mkv = final.with_suffix(".mkv.part")
         mkv_final = final.with_suffix(".mkv")
+        replay_dir_path, replay_files = self._replay_target()
+        if replay_dir_path is not None:
+            replay_dir_path.mkdir(parents=True, exist_ok=True)
 
         self._result = {}
         self._stop_event.clear()
@@ -210,8 +237,9 @@ class PortalRecorder:
         self._session_thread.start()
         node, fd = self._wait_for_stream()
         self._pw_fd = fd
+        self._stream_node, self._stream_fd = node, fd
 
-        cmd = self.build_cmd(node, fd, tmp_mkv)
+        cmd = self.build_cmd(node, fd, tmp_mkv, *self._replay_target())
         self._proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -277,6 +305,32 @@ class PortalRecorder:
         self.state.last_error = "MP4 remux failed, MKV handed over instead"
         return mkv
 
+    def build_replay_cmd(self, segment: Path) -> list[str]:
+        """Replay encoder: a second `gst-launch` reading the same PipeWire
+        stream as the main recording, writing one Matroska segment.
+
+        GStreamer has no segment muxer, so the replay buffer rotates by
+        restarting this pipeline (see `replay.ReplayRecorder.rotate`), which
+        is why it targets a single file instead of a `-f segment` pattern.
+        """
+        return [
+            "gst-launch-1.0",
+            "pipewiresrc", f"fd={self._stream_fd}", f"path={self._stream_node}",
+            "do-timestamp=true",
+            "!", "videoconvert",
+            "!", "queue",
+            "!", "openh264enc",
+            f"bitrate={self.cfg.video_bitrate_kbps * 1000}",
+            "!", "h264parse",
+            "!", "queue",
+            "!", "matroskamux",
+            "!", "filesink", f"location={segment}",
+        ]
+
+    def replay_ready(self) -> bool:
+        """True once a portal stream exists for the replay encoder to share."""
+        return self._stream_node >= 0 and self._stream_fd >= 0
+
     def _remux(self, mkv: Path, mp4: Path) -> bool:
         try:
             r = subprocess.run(
@@ -292,7 +346,9 @@ class PortalRecorder:
 
     # -- komut --
 
-    def build_cmd(self, node: int, fd: int, tmp: Path) -> list[str]:
+    def build_cmd(self, node: int, fd: int, tmp: Path,
+                  replay_dir: Path | None = None,
+                  replay_files: int = 0) -> list[str]:
         from ..audio import (
             effective_gains,
             normalize_audio_mode,
@@ -362,6 +418,22 @@ class PortalRecorder:
             "!", "queue",
             "!",
         ]
+        # Replay buffer: the encoded stream is teed to a second sink that
+        # writes the rolling ring. No extra encoder, no second PipeWire
+        # consumer, and the ring is bounded by `prune_segments`.
+        has_replay = replay_dir is not None and replay_files > 0
+        cmd += self._mux_tail(tmp, replay_dir, replay_files)
+        audio_sink: list[str] = ["mux."]
+        if has_replay:
+            # Audio rides the same ring. splitmuxsink names its pad templates
+            # `audio_%u`, so the pad is audio_0. Every tee branch needs its own
+            # queue: without one, gst-launch fails with
+            # "atee, mux'a bağlanamadı" (tee, mux cannot be linked).
+            audio_sink = [
+                "tee", "name=atee",
+                "atee.", "!", "queue", "!", "mux.",
+                "atee.", "!", "queue", "!", "rmux.audio_0",
+            ]
         if self.cfg.audio_enabled:
             mode = normalize_audio_mode(self.cfg.audio_mode)
             mic_gain, desk_gain = effective_gains(self.cfg)
@@ -369,7 +441,6 @@ class PortalRecorder:
                 # Two capture branches (mic + desktop monitor) mixed down to
                 # one track: ... ! mix. + ... ! mix. + mix. ! encoder ! mux.
                 # Per-source gain lives in each pulsesrc branch (OBS-style).
-                cmd += ["matroskamux", "name=mux", "!", "filesink", f"location={tmp}"]
                 cmd += ["audiomixer", "name=mix", "!"]
                 cmd += [
                     "audioconvert",
@@ -377,18 +448,17 @@ class PortalRecorder:
                     "!", "queue",
                     "!", "avenc_aac", f"bitrate={self.cfg.audio_bitrate_kbps * 1000}",
                     "!", "aacparse",
-                    "!", "mux.",
-                ]
+                    "!",
+                ] + audio_sink
                 cmd += _pulsesrc_branch(
                     resolve_mic_source(self.cfg.audio_source), "mix.",
-                    gain=mic_gain,
+                    gain=mic_gain, link=not has_replay,
                 )
                 cmd += _pulsesrc_branch(
                     resolve_desktop_source(self.cfg.audio_desktop_source),
-                    "mix.", gain=desk_gain,
+                    "mix.", gain=desk_gain, link=not has_replay,
                 )
             else:
-                cmd += ["matroskamux", "name=mux", "!", "filesink", f"location={tmp}"]
                 if mode == "desktop":
                     src = resolve_desktop_source(self.cfg.audio_desktop_source)
                     gain = desk_gain
@@ -396,12 +466,42 @@ class PortalRecorder:
                     src = resolve_mic_source(self.cfg.audio_source)
                     gain = mic_gain
                 cmd += _pulsesrc_branch(
-                    src, "mux.", gain=gain,
+                    src, audio_sink, gain=gain,
                     bitrate=self.cfg.audio_bitrate_kbps * 1000,
+                    link=not has_replay,
                 )
-        else:
-            cmd += ["matroskamux", "!", "filesink", f"location={tmp}"]
         return cmd
+
+    def _mux_tail(
+        self, tmp: Path, replay_dir: Path | None, replay_files: int
+    ) -> list[str]:
+        """Sink side of the pipeline: the recording file, and the replay ring
+        when the buffer is enabled.
+
+        The ring uses `splitmuxsink`, which cuts on keyframes every
+        `max-size-time` (it also asks the encoder for a keyframe at the split
+        point) and numbers the files itself. `multifilesink` is unusable here:
+        on this GStreamer build it opens a new file per *buffer*, not per
+        segment.
+
+        The ring size is bounded by the caller, since `splitmuxsink` has no
+        file limit: `replay.ReplayRecorder` prunes after every take.
+        """
+        if replay_dir is None or replay_files <= 0:
+            return ["matroskamux", "name=mux", "!", "filesink", f"location={tmp}"]
+        from ..replay import SEGMENT_TIME_S
+
+        ns = SEGMENT_TIME_S * 1_000_000_000
+        return [
+            "tee", "name=vtee",
+            "vtee.", "!", "queue", "!", "matroskamux", "name=mux",
+            "!", "filesink", f"location={tmp}",
+            "vtee.", "!", "queue", "!",
+            "splitmuxsink", "name=rmux", "muxer=matroskamux",
+            f"max-size-time={ns}", "max-size-bytes=0",
+            "send-keyframe-requests=true",
+            f"location={replay_dir}/replay_%05d.mkv",
+        ]
 
     # -- internals --
 

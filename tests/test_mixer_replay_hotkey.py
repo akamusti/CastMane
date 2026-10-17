@@ -73,9 +73,16 @@ def test_replay_helpers():
     segs = [Path(f"/v/.replay/replay_{i:03d}.mp4") for i in range(10)]
     picked = r.select_segments_for_save(segs, 25)
     assert picked == segs[-3:]
-    cmd, text = r.build_concat_cmd(picked, Path("/v/out.mp4"))
-    assert cmd[:3] == ["ffmpeg", "-y", "-f"]
+    text = r.concat_list_text(picked)
     assert text.count("file '") == 3
+    # The list must be a real file: with `-i pipe:0` the concat demuxer looks
+    # for `pipe:<abs path>` and every join fails.
+    list_file = Path("/v/out.mp4.concat.txt")
+    cmd = r.build_concat_cmd(picked, Path("/v/out.mp4"), list_file)
+    assert cmd[:3] == ["ffmpeg", "-y", "-f"]
+    assert str(list_file) in cmd
+    assert "pipe:0" not in cmd
+    assert "-c" in cmd and "copy" in cmd
 
 
 def test_normalize_shortcut_and_replay():
