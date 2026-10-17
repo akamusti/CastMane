@@ -76,6 +76,22 @@ grep -rniE "api[_-]?key|secret|token|password|passwd|bearer" src tests --include
 - Varsayılan branch: `main`, remote: `origin`. Kullanıcı aksini söylemedikçe doğrudan `main`'e commit + push.
 - Push'tan önce `git status --short` ile `.env` / `*.part` / `*.AppImage` sızmadığını doğrula.
 
+### PR açma yok, doğrudan `main` (kalıcı kural)
+
+- **PR açma, branch açma.** GitHub ana branch'ten aynı branch'e PR'a izin vermiyor; kullanıcı
+  ayrı feature branch'lerden açıkça şikâyet etti. Düzeltmeler doğrudan `main`'e gider.
+- Birden fazla issue kapatılacaksa: **her issue için ayrı commit**. Commit mesajının son satırına
+  `Closes #<n>` yaz, böylece GitHub issue'yi push'ta otomatik kapatır.
+- Örnek:
+  ```
+  fix(recorder): declare explicit muxer for .part staging output
+
+  Closes #4
+  ```
+- Sıralama: bağımlı düzeltmeler önce bağımsız olanlar (bir düzeltme diğerinin önkoşuluysa
+  önce o commit'lenir). Her adımda `pytest -q` + `ruff check` temiz olmalı.
+- Tasarım/kapsam belirsizliği varsa düzeltmeden önce tek soru sor; onaysız yarım çözüm yazma.
+
 ## Versiyonlama (ilerideki tüm update'ler için geçerli, kalıcı kural)
 
 - Varsayılan patch artır: `0.8.0` → `0.8.1`, `0.8.2`, `0.8.3`... Küçük fix / küçük iyileştirme = patch.
