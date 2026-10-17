@@ -75,6 +75,10 @@ grep -rniE "api[_-]?key|secret|token|password|passwd|bearer" src tests --include
 - Push öncesi `pytest -q` ve `ruff check` temiz olmalı.
 - Varsayılan branch: `main`, remote: `origin`. Kullanıcı aksini söylemedikçe doğrudan `main`'e commit + push.
 - Push'tan önce `git status --short` ile `.env` / `*.part` / `*.AppImage` sızmadığını doğrula.
+- AI destekli her commit sonuna imza ekle (kullanıcı açıkça isterse):
+  `Co-Authored-By: opencode <noreply@opencode.ai>`. Gerçek kimliği yaz —
+  başka bir model/vendor adı uydurma. Yayınlanmış `main` geçmişi geriye
+  dönük rewrite edilmez; imza yalnızca yeni commit'lere konur.
 
 ### Her düzeltme için branch + PR (kalıcı kural)
 
