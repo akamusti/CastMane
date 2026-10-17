@@ -90,6 +90,7 @@ from .config import (
 from .i18n import SUPPORTED_LANGUAGES, normalize
 from .i18n import get as _get
 from .icons import paint_icon, tray_icon
+from .replay import ReplayRecorder
 from .theme import (
     FONT_UI,
     FOOTER_H,
@@ -935,6 +936,9 @@ class MainWindow(QMainWindow):
         self.cfg.theme = theme_mod.normalize_theme(self.cfg.theme)
         self.theme = theme_mod.get_theme(self.cfg.theme)
         self.rec = create_backend(self.cfg)
+        # Replay buffer: a second encoder that runs next to the recording so
+        # the last N seconds are always on disk (OBS-style).
+        self._replay = ReplayRecorder(self.cfg, self.rec)
         self._card_labels: list[QLabel] = []
         self.setWindowTitle("CastMane")
         self.resize(960, 720)
@@ -2660,8 +2664,20 @@ class MainWindow(QMainWindow):
         else:
             self._autostop_remaining_ms = 0
         self._notify(self.t("notify_started"))
+        self._start_replay()
         self._refresh_tray()
         self._refresh_title()
+
+    def _start_replay(self) -> None:
+        """Run the replay encoder next to the main recording. A failure
+        here must never affect the take: the buffer just stays empty."""
+        if not self.cfg.replay_enabled:
+            return
+        if not self._replay.start():
+            self._fail(self.t("replay_failed").format(err=self._replay.last_error))
+
+    def _stop_replay(self) -> None:
+        self._replay.stop()
 
     def _stop_recording(self, reason: str = "", quit_after: bool = False) -> None:
         """Ask the encoder to stop. The blocking part (graceful shutdown plus
@@ -2673,7 +2689,7 @@ class MainWindow(QMainWindow):
         self._autostop_timer.stop()
         self._autostop_remaining_ms = 0
         self._countdown_left = 0
-        self._end_screen_preview()
+        self._stop_replay()
         self.pause_btn.setEnabled(False)
         self.pause_btn.setText(self.t("pause"))
         self._sync_studio_controls()
@@ -3268,6 +3284,7 @@ class MainWindow(QMainWindow):
             return
         self._countdown_timer.stop()
         self._autostop_timer.stop()
+        self._stop_replay()
         try:
             if self._cam is not None:
                 self._cam.stop()
