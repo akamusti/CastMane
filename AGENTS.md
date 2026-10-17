@@ -76,20 +76,16 @@ grep -rniE "api[_-]?key|secret|token|password|passwd|bearer" src tests --include
 - Varsayılan branch: `main`, remote: `origin`. Kullanıcı aksini söylemedikçe doğrudan `main`'e commit + push.
 - Push'tan önce `git status --short` ile `.env` / `*.part` / `*.AppImage` sızmadığını doğrula.
 
-### PR açma yok, doğrudan `main` (kalıcı kural)
+### Her düzeltme için branch + PR (kalıcı kural)
 
-- **PR açma, branch açma.** GitHub ana branch'ten aynı branch'e PR'a izin vermiyor; kullanıcı
-  ayrı feature branch'lerden açıkça şikâyet etti. Düzeltmeler doğrudan `main`'e gider.
-- Birden fazla issue kapatılacaksa: **her issue için ayrı commit**. Commit mesajının son satırına
-  `Closes #<n>` yaz, böylece GitHub issue'yi push'ta otomatik kapatır.
-- Örnek:
-  ```
-  fix(recorder): declare explicit muxer for .part staging output
-
-  Closes #4
-  ```
-- Sıralama: bağımlı düzeltmeler önce bağımsız olanlar (bir düzeltme diğerinin önkoşuluysa
-  önce o commit'lenir). Her adımda `pytest -q` + `ruff check` temiz olmalı.
+- **Her issue ayrı branch, her issue ayrı PR.** Düzeltmeler `main`'e doğrudan push edilmez;
+  GitHub ana branch'ten aynı branch'e PR'a izin vermediği için her iş için `main`'den türeyen
+  bir feature branch açılır ve PR ile `main`'e önerilir.
+- Branch adı: `fix/<kısa-konu>` / `feat/<kısa-konu>`. Örnek: `fix/x11-partial-muxer`.
+- PR gövdesi: ne bozuktu, nasıl yeniden üretilir, beklenen vs. gerçekleşen davranış,
+  `Closes #<n>`. PR'ın **sonunda** `Closes #<n>` satırı bulunur, gövdenin ortasında değil.
+- Versiyon bump'ı hangi PR'da yapılacaksa o PR'da (`pyproject.toml` + `__init__.py:4` senkron).
+- Sıralama: bağımlı düzeltmeler önce bağımsız olanlar. Her PR'da `pytest -q` + `ruff check` temiz.
 - Tasarım/kapsam belirsizliği varsa düzeltmeden önce tek soru sor; onaysız yarım çözüm yazma.
 
 ## Versiyonlama (ilerideki tüm update'ler için geçerli, kalıcı kural)
