@@ -131,15 +131,19 @@ def _pulsesrc_branch(
     `device` "" or "default" means "PulseAudio default" (no device property).
     Software gain: monitor (system sound) input is usually much quieter than
     mic input; compensate with volume >1.0 (nothing added at 1.0, pipeline
-    unchanged). When `sink` is the recording mux the branch carries its own AAC
-    encoder (single-source mode, needs `bitrate`); otherwise it feeds the
-    shared mixer downstream. `sink` is a list so the replay branch can fork it.
+    unchanged). Single-source mode encodes to AAC itself (needs `bitrate`);
+    `bitrate=0` skips the encoder and hands raw PCM to `sink`, which is what the
+    `both` mode wants (one shared encoder downstream of the mixer).
+    `sink` is a list so the replay branch can fork it — the encoder is part of
+    the branch, NOT of the sink, so the AAC bitstream is what gets teed (a
+    sink-side encoder was skipped for the replay tee and stored pcm_s16le).
 
     `link=True` prefixes the branch with "!" so it chains onto the previous
-    element. Pass False when the branch has to open its own pipeline branch:
-    a source that follows the replay `splitmuxsink` may not be attached with
-    "!", because a sink has no output pad to continue from (gst-launch then
-    fails with "erroneous pipeline: syntax error").
+    element. Pass False when the branch opens its own pipeline branch: the
+    video branch always ends with a sink (`filesink`, or `splitmuxsink` for
+    the replay ring), and a sink has no pad to continue from. gst-launch then
+    rejects the pipeline with "filesink0, pulsesrc0'a bağlanamadı" /
+    "erroneous pipeline: syntax error".
     """
     branch: list[str] = (["!"] if link else []) + ["pulsesrc"]
     if device and device != "default":
@@ -150,7 +154,11 @@ def _pulsesrc_branch(
     branch += ["!", "queue", "!"]
     if isinstance(sink, str):
         sink = [sink]
-    if sink == ["mux."]:
+    if bitrate > 0:
+        # Single-source mode: encode here so every sink of this branch
+        # (recording mux, replay tee) receives AAC. Must stay independent of
+        # the sink shape — conditioning it on the mux alone left the replay
+        # take with raw pcm_s16le audio (see issue #10).
         branch += ["avenc_aac", f"bitrate={bitrate}", "!", "aacparse", "!"]
     branch += sink
     return branch
@@ -452,11 +460,11 @@ class PortalRecorder:
                 ] + audio_sink
                 cmd += _pulsesrc_branch(
                     resolve_mic_source(self.cfg.audio_source), "mix.",
-                    gain=mic_gain, link=not has_replay,
+                    gain=mic_gain, link=False,
                 )
                 cmd += _pulsesrc_branch(
                     resolve_desktop_source(self.cfg.audio_desktop_source),
-                    "mix.", gain=desk_gain, link=not has_replay,
+                    "mix.", gain=desk_gain, link=False,
                 )
             else:
                 if mode == "desktop":
@@ -468,7 +476,7 @@ class PortalRecorder:
                 cmd += _pulsesrc_branch(
                     src, audio_sink, gain=gain,
                     bitrate=self.cfg.audio_bitrate_kbps * 1000,
-                    link=not has_replay,
+                    link=False,
                 )
         return cmd
 

@@ -88,6 +88,24 @@ def _portal_cmd(**kw):
     return rec.build_cmd(42, 9, Path("/tmp/out.mkv.part"))
 
 
+def test_portal_audio_branch_never_hangs_off_a_sink(tmp_path):
+    """The video branch ends with filesink/splitmuxsink, both sinks without an
+    output pad. A "!"-linked pulsesrc there makes gst-launch reject the whole
+    pipeline ("filesink0, pulsesrc0'a bağlanamadı")."""
+    from castmane.backends.portal import PortalRecorder
+
+    for replay in (False, True):
+        for mode in ("mic", "desktop", "both"):
+            cfg = AppConfig(output_dir=tmp_path, replay_enabled=replay,
+                            audio_enabled=True, audio_mode=mode)
+            cmd = PortalRecorder(cfg).build_cmd(
+                42, 9, tmp_path / "t.mkv.part", *PortalRecorder(cfg)._replay_target())
+            for i, tok in enumerate(cmd):
+                if tok in ("pulsesrc", "audiomixer"):
+                    assert cmd[i - 1] != "!", f"{mode}/replay={replay}: {tok} chained onto a sink"
+            assert cmd.count("pulsesrc") == (2 if mode == "both" else 1)
+
+
 def test_portal_mic_single_branch():
     cmd = _portal_cmd(audio_mode="mic")
     assert cmd.count("pulsesrc") == 1
