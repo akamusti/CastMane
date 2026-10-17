@@ -144,16 +144,45 @@ def test_portal_replay_audio_joins_the_ring(tmp_path):
     assert cmd[atee:atee + 4] == ["atee.", "!", "queue", "!"]
 
 
+def test_portal_replay_audio_stays_aac(tmp_path):
+    """With the replay buffer on, the audio sink is a tee, not the mux. The
+    encoder belongs to the branch, so the ring and the recording both get AAC
+    (issue #10: a sink-side encoder stored raw pcm_s16le)."""
+    cfg = AppConfig(output_dir=tmp_path, replay_enabled=True,
+                    audio_enabled=True, audio_mode="mic")
+    cmd = PortalRecorder(cfg).build_cmd(
+        42, 9, tmp_path / "t.mkv.part", rp.replay_dir(tmp_path), 8)
+    assert cmd.count("avenc_aac") == 1
+    enc = cmd.index("avenc_aac")
+    # Encoder upstream of every audio consumer: the tee, both ring and mux.
+    assert cmd.index("tee", enc) > enc, "AAC must be encoded before the tee"
+    assert cmd.index("rmux.audio_0") > enc
+    assert cmd.index("aacparse", enc) < cmd.index("tee", enc)
+
+
+def test_portal_both_mode_encodes_after_the_mixer(tmp_path):
+    """Two sources share one encoder; the branches themselves stay raw."""
+    cfg = AppConfig(output_dir=tmp_path, replay_enabled=True,
+                    audio_enabled=True, audio_mode="both")
+    cmd = PortalRecorder(cfg).build_cmd(
+        42, 9, tmp_path / "t.mkv.part", rp.replay_dir(tmp_path), 8)
+    assert cmd.count("avenc_aac") == 1
+    assert cmd.index("avenc_aac") > cmd.index("audiomixer")
+    assert cmd.index("avenc_aac") < cmd.index("tee", cmd.index("avenc_aac"))
+
+
 def test_pulsesrc_branch_links_only_when_it_follows_an_element():
     """A source that follows the replay splitmuxsink cannot be attached with
     "!": the sink has no pad to continue from, so gst-launch reports a syntax
     error."""
     from castmane.backends.portal import _pulsesrc_branch
 
-    chained = _pulsesrc_branch("auto", ["mux."])
+    chained = _pulsesrc_branch("auto", ["mux."], bitrate=128000)
     assert chained[0] == "!"
-    standalone = _pulsesrc_branch("auto", ["mux."], link=False)
+    standalone = _pulsesrc_branch("auto", ["mux."], bitrate=128000, link=False)
     assert standalone[0] == "pulsesrc"
+    # bitrate=0 means "the encoder lives downstream" (both mode), not "raw".
+    assert "avenc_aac" not in _pulsesrc_branch("auto", ["mix."])
 
 
 def test_portal_pipeline_is_unchanged_when_replay_is_off(tmp_path):
