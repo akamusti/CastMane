@@ -151,11 +151,26 @@ class AppConfig:
     replay_seconds: int = REPLAY_DEFAULT_S
     # Camera source (OBS-style): picture-in-picture overlay.
     # camera_enabled shows the camera in the Studio preview; camera_embed
-    # additionally burns it into the recorded file (bottom-right corner).
-    # camera_device "auto" resolves to the first /dev/video* node.
+    # additionally burns it into the recorded file. camera_device "auto"
+    # resolves to the first /dev/video* node.
     camera_enabled: bool = False
     camera_embed: bool = True
     camera_device: str = "auto"
+    # PiP placement, normalised so preview and file agree at any
+    # resolution. pos is the fraction of the free space (1.0 = flush with
+    # the right/bottom edge), scale is the camera width fraction.
+    camera_pos_x: float = 0.72
+    camera_pos_y: float = 0.66
+    camera_scale: float = 0.22
+    # Primary-screen size, set at runtime from Qt. The portal compositor
+    # needs absolute pixels and cannot use the overlay expressions the
+    # X11 backend uses. Not persisted; 1080p is only a fallback.
+    screen_w: int = 1920
+    screen_h: int = 1080
+    # Camera frame aspect (w/h), learned from the preview before a take.
+    # The portal compositor forces the PiP caps, so matching this keeps
+    # the burned-in overlay the same shape as the preview. 0 = unknown.
+    camera_aspect: float = 0.0
     # Configurable shortcuts (Settings page). Defaults match the old
     # hardcoded R / P / F (+ Space alias for record, T for replay save).
     shortcut_record: str = "R"
@@ -179,7 +194,11 @@ class AppConfig:
     auto_stop_min: int = 0
 
     def __post_init__(self) -> None:
-        from .camera import normalize_camera_device
+        from .camera import (
+            clamp_camera_position,
+            clamp_camera_scale,
+            normalize_camera_device,
+        )
 
         self.language = normalize(self.language)
         self.theme = normalize_theme(self.theme)
@@ -198,6 +217,19 @@ class AppConfig:
         self.camera_enabled = bool(self.camera_enabled)
         self.camera_embed = bool(self.camera_embed)
         self.camera_device = normalize_camera_device(self.camera_device)
+        self.camera_pos_x = clamp_camera_position(self.camera_pos_x)
+        self.camera_pos_y = clamp_camera_position(self.camera_pos_y)
+        self.camera_scale = clamp_camera_scale(self.camera_scale)
+        try:
+            self.screen_w = max(320, int(self.screen_w))
+            self.screen_h = max(240, int(self.screen_h))
+        except (TypeError, ValueError):
+            self.screen_w, self.screen_h = 1920, 1080
+        try:
+            aspect = float(self.camera_aspect)
+        except (TypeError, ValueError):
+            aspect = 0.0
+        self.camera_aspect = aspect if 0.2 <= aspect <= 5.0 else 0.0
         self.shortcut_record = normalize_shortcut(self.shortcut_record, "R")
         self.shortcut_pause = normalize_shortcut(self.shortcut_pause, "P")
         self.shortcut_replay = normalize_shortcut(self.shortcut_replay, "T")
@@ -291,6 +323,9 @@ class AppConfig:
             "camera_enabled": self.camera_enabled,
             "camera_embed": self.camera_embed,
             "camera_device": self.camera_device,
+            "camera_pos_x": self.camera_pos_x,
+            "camera_pos_y": self.camera_pos_y,
+            "camera_scale": self.camera_scale,
             "shortcut_record": self.shortcut_record,
             "shortcut_pause": self.shortcut_pause,
             "shortcut_replay": self.shortcut_replay,
@@ -341,6 +376,9 @@ class AppConfig:
                 camera_enabled=bool(data.get("camera_enabled", False)),
                 camera_embed=bool(data.get("camera_embed", True)),
                 camera_device=data.get("camera_device", "auto"),
+                camera_pos_x=data.get("camera_pos_x", 0.72),
+                camera_pos_y=data.get("camera_pos_y", 0.66),
+                camera_scale=data.get("camera_scale", 0.22),
                 replay_seconds=normalize_replay_seconds(
                     data.get("replay_seconds", REPLAY_DEFAULT_S)),
                 shortcut_record=normalize_shortcut(

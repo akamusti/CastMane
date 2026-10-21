@@ -45,7 +45,6 @@ from PySide6.QtMultimedia import (
     QMediaDevices,
     QMediaPlayer,
 )
-from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
     QAbstractButton,
     QApplication,
@@ -69,6 +68,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QStackedWidget,
     QSystemTrayIcon,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -76,6 +76,12 @@ from PySide6.QtWidgets import (
 from . import theme as theme_mod
 from .__init__ import __version__
 from .backends import create_backend, session_is_wayland
+from .camera import (
+    CAMERA_SCALE_MAX,
+    CAMERA_SCALE_MIN,
+    clamp_camera_position,
+    clamp_camera_scale,
+)
 from .config import (
     AUTO_STOP_MAX_MIN,
     BITRATE_MAX_KBPS,
@@ -90,6 +96,7 @@ from .config import (
 from .i18n import SUPPORTED_LANGUAGES, normalize
 from .i18n import get as _get
 from .icons import paint_icon, tray_icon
+from .preview import PreviewStage
 from .replay import ReplayRecorder
 from .theme import (
     FONT_UI,
@@ -472,15 +479,28 @@ QPushButton:disabled {{
 }}
 
 /* --- Studio Preview --- */
-QVideoWidget#ScreenView {{
-    background-color: #000000;
-    border: 1px solid {HAIRLINE};
-    border-radius: 8px;
+QWidget#PreviewStage {{
+    background: transparent;
 }}
-QVideoWidget#CamView {{
-    background-color: #000000;
-    border: 1px solid {HAIRLINE_STRONG};
+QToolButton#CornerButton {{
+    background-color: transparent;
+    border: 1px solid {HAIRLINE};
     border-radius: 6px;
+    color: {TEXT_MUTED};
+    font-size: 12px;
+    padding: 0px;
+}}
+QToolButton#CornerButton:hover {{
+    background-color: {BTN_HOVER};
+    border-color: {HAIRLINE_STRONG};
+    color: {TEXT_MAIN};
+}}
+QToolButton#CornerButton:pressed {{
+    background-color: {BTN_PRESSED};
+}}
+QToolButton#CornerButton:disabled {{
+    color: {BTN_DISABLED_TEXT};
+    border-color: {HAIRLINE};
 }}
 
 /* --- Inputs (Text & SpinBox) --- */
@@ -940,6 +960,13 @@ class MainWindow(QMainWindow):
         # the last N seconds are always on disk (OBS-style).
         self._replay = ReplayRecorder(self.cfg, self.rec)
         self._card_labels: list[QLabel] = []
+        # Camera placement edits are remembered shortly after the drag
+        # ends instead of on every slider/wheel tick.
+        self._camera_save_timer = QTimer(self)
+        self._camera_save_timer.setSingleShot(True)
+        self._camera_save_timer.setInterval(400)
+        self._camera_save_timer.timeout.connect(self.cfg.save)
+        self._sync_screen_hint()
         self.setWindowTitle("CastMane")
         self.resize(960, 720)
         self.setMinimumSize(780, 570)
@@ -1268,32 +1295,70 @@ class MainWindow(QMainWindow):
         self.preview_status.setObjectName("Hint")
         self.preview_status.setWordWrap(True)
         badge_row.addWidget(self.preview_status, 1)
-        preview.addLayout(badge_row)
-
-        video_row = QHBoxLayout()
-        video_row.setContentsMargins(0, 2, 0, 0)
-        video_row.setSpacing(12)
-        self.screen_view = QVideoWidget()
-        self.screen_view.setObjectName("ScreenView")
-        self.screen_view.setMinimumHeight(150)
-        self.screen_view.setMaximumHeight(180)
-        self.screen_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        video_row.addWidget(self.screen_view, 1)
-        cam_col = QVBoxLayout()
-        cam_col.setContentsMargins(0, 0, 0, 0)
-        cam_col.setSpacing(6)
-        self.cam_view = QVideoWidget()
-        self.cam_view.setObjectName("CamView")
-        self.cam_view.setFixedSize(200, 125)
-        cam_col.addWidget(self.cam_view)
         self.cam_status = QLabel()
         self.cam_status.setObjectName("Hint")
-        self.cam_status.setWordWrap(True)
-        self.cam_status.setFixedWidth(200)
-        cam_col.addWidget(self.cam_status)
-        cam_col.addStretch(1)
-        video_row.addLayout(cam_col)
-        preview.addLayout(video_row)
+        self.cam_status.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        badge_row.addWidget(self.cam_status)
+        preview.addLayout(badge_row)
+
+        # One painted stage instead of two stacked video widgets: the
+        # camera PiP can be dragged anywhere over the screen frame, and
+        # the selection border/grip can be drawn on top reliably.
+        self.preview_stage = PreviewStage()
+        self.preview_stage.set_placeholder(self.t("stage_empty"))
+        self.preview_stage.set_position(
+            self.cfg.camera_pos_x, self.cfg.camera_pos_y
+        )
+        self.preview_stage.set_scale(self.cfg.camera_scale)
+        self.preview_stage.geometry_changed.connect(
+            self._on_camera_geometry_changed
+        )
+        preview.addWidget(self.preview_stage)
+
+        controls = QHBoxLayout()
+        controls.setContentsMargins(0, 0, 0, 0)
+        controls.setSpacing(8)
+        self.preview_drag_hint = QLabel()
+        self.preview_drag_hint.setObjectName("Hint")
+        self.preview_drag_hint.setWordWrap(True)
+        controls.addWidget(self.preview_drag_hint, 1)
+
+        self.lbl_camera_size = QLabel()
+        self.lbl_camera_size.setObjectName("RowLabel")
+        controls.addWidget(self.lbl_camera_size)
+        self.camera_size_slider = QSlider(Qt.Horizontal)
+        self.camera_size_slider.setRange(
+            round(CAMERA_SCALE_MIN * 100), round(CAMERA_SCALE_MAX * 100)
+        )
+        self.camera_size_slider.setFixedWidth(108)
+        self.camera_size_slider.setValue(round(self.cfg.camera_scale * 100))
+        self.camera_size_slider.valueChanged.connect(
+            self._on_camera_size_changed
+        )
+        controls.addWidget(self.camera_size_slider)
+        self.camera_size_value = QLabel(
+            f"{round(self.cfg.camera_scale * 100)}%"
+        )
+        self.camera_size_value.setObjectName("Hint")
+        self.camera_size_value.setFixedWidth(36)
+        controls.addWidget(self.camera_size_value)
+
+        self.camera_pos_btns: list[QToolButton] = []
+        for corner, glyph in (
+            ("tl", "◤"), ("tr", "◥"), ("bl", "◣"), ("br", "◢"),
+        ):
+            btn = QToolButton()
+            btn.setObjectName("CornerButton")
+            btn.setAutoRaise(True)
+            btn.setFixedSize(27, 25)
+            btn.setText(glyph)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(
+                lambda _=False, c=corner: self.preview_stage.set_corner(c)
+            )
+            controls.addWidget(btn)
+            self.camera_pos_btns.append(btn)
+        preview.addLayout(controls)
         layout.addWidget(preview_card)
 
         # Media backends are best-effort: preview/camera must never
@@ -1304,7 +1369,7 @@ class MainWindow(QMainWindow):
             self._preview_audio = QAudioOutput(self)
             self._preview_audio.setMuted(True)
             self.preview_player.setAudioOutput(self._preview_audio)
-            self.preview_player.setVideoOutput(self.screen_view)
+            self.preview_player.setVideoOutput(self.preview_stage.screen_sink)
             self.preview_player.errorOccurred.connect(self._on_preview_error)
             self.preview_player.playingChanged.connect(self._on_preview_playing)
             self.preview_player.mediaStatusChanged.connect(
@@ -1989,6 +2054,14 @@ class MainWindow(QMainWindow):
         self.lbl_camera_embed.setText(_get("label_camera_embed", lang))
         self.hint_camera_embed.setText(_get("camera_embed_hint", lang))
         self.hint_camera.setText(_get("camera_hint", lang))
+        self.preview_drag_hint.setText(_get("preview_drag_hint", lang))
+        self.preview_stage.set_placeholder(_get("stage_empty", lang))
+        self.lbl_camera_size.setText(_get("label_camera_size", lang))
+        for btn, key in zip(
+            self.camera_pos_btns,
+            ("camera_pos_tl", "camera_pos_tr", "camera_pos_bl", "camera_pos_br"),
+        ):
+            btn.setToolTip(_get(key, lang))
         self.hint_sources.setText(_get("sources_hint", lang))
         self._refresh_camera_devices()
         self._refresh_sources()
@@ -2349,6 +2422,7 @@ class MainWindow(QMainWindow):
                 self.preview_player.setSource(QUrl())
         except Exception:  # noqa: BLE001 - best-effort teardown
             pass
+        self.preview_stage.clear_screen()
         self._refresh_preview_badge(False)
 
     def _on_preview_error(self, _error, error_string: str = "") -> None:
@@ -2387,6 +2461,22 @@ class MainWindow(QMainWindow):
         self.camera_combo.setCurrentIndex(max(0, idx))
         self.camera_combo.blockSignals(False)
 
+    def _sync_screen_hint(self) -> None:
+        """Remember the primary-screen size for the portal compositor.
+
+        The X11 overlay uses ffmpeg expressions and needs no hint, but
+        GStreamer `compositor` only takes absolute x/y pixels.
+        """
+        try:
+            screen = self.screen() or QApplication.primaryScreen()
+        except Exception:  # noqa: BLE001 - size hint is optional
+            return
+        if screen is None:
+            return
+        size = screen.size()
+        self.cfg.screen_w = max(320, size.width())
+        self.cfg.screen_h = max(240, size.height())
+
     def _refresh_camera_preview(self) -> None:
         try:
             if self._cam is not None:
@@ -2395,8 +2485,9 @@ class MainWindow(QMainWindow):
             pass
         self._cam = None
         self._cam_session = None
+        self.preview_stage.set_camera_visible(self.cfg.camera_enabled)
         if not self.cfg.camera_enabled:
-            self.cam_view.hide()
+            self.preview_stage.clear_camera()
             self.cam_status.setText(self.t("camera_preview_off"))
             return
         try:
@@ -2412,7 +2503,7 @@ class MainWindow(QMainWindow):
             cam = QCamera(chosen) if chosen is not None else QCamera()
             session = QMediaCaptureSession()
             session.setCamera(cam)
-            session.setVideoOutput(self.cam_view)
+            session.setVideoOutput(self.preview_stage.camera_sink)
             try:
                 cam.errorOccurred.connect(self._on_camera_error)
             except Exception:  # noqa: BLE001 - older Qt without the signal
@@ -2420,11 +2511,38 @@ class MainWindow(QMainWindow):
             cam.start()
             self._cam = cam
             self._cam_session = session
-            self.cam_view.show()
             self.cam_status.setText(dev_path or self.t("camera_none"))
         except Exception:  # noqa: BLE001 - no camera backend, show label
-            self.cam_view.hide()
             self.cam_status.setText(self.t("camera_unavailable"))
+
+    def _on_camera_geometry_changed(
+        self, pos_x: float, pos_y: float, scale: float
+    ) -> None:
+        self.cfg.camera_pos_x = clamp_camera_position(pos_x)
+        self.cfg.camera_pos_y = clamp_camera_position(pos_y)
+        self.cfg.camera_scale = clamp_camera_scale(scale)
+        try:
+            self.rec.cfg.camera_pos_x = self.cfg.camera_pos_x
+            self.rec.cfg.camera_pos_y = self.cfg.camera_pos_y
+            self.rec.cfg.camera_scale = self.cfg.camera_scale
+        except AttributeError:
+            pass
+        value = round(self.cfg.camera_scale * 100)
+        self.camera_size_slider.blockSignals(True)
+        self.camera_size_slider.setValue(value)
+        self.camera_size_slider.blockSignals(False)
+        self.camera_size_value.setText(f"{value}%")
+        self._camera_save_timer.start()
+
+    def _on_camera_size_changed(self, value: int) -> None:
+        self.cfg.camera_scale = clamp_camera_scale(value / 100.0)
+        self.preview_stage.set_scale(self.cfg.camera_scale)
+        try:
+            self.rec.cfg.camera_scale = self.cfg.camera_scale
+        except AttributeError:
+            pass
+        self.camera_size_value.setText(f"{int(value)}%")
+        self._camera_save_timer.start()
 
     def _on_camera_error(self, _error, _message: str = "") -> None:
         self.cam_status.setText(self.t("camera_unavailable"))
@@ -2582,6 +2700,12 @@ class MainWindow(QMainWindow):
         self.camera_sw.setEnabled(enabled)
         self.camera_combo.setEnabled(enabled)
         self.camera_embed_sw.setEnabled(enabled)
+        # Placement only affects the next pipeline build, so it is locked
+        # during a take exactly like the other source controls.
+        self.preview_stage.set_interactive(enabled)
+        self.camera_size_slider.setEnabled(enabled)
+        for btn in self.camera_pos_btns:
+            btn.setEnabled(enabled)
         if enabled:
             self._refresh_custom_enabled()
         else:
@@ -2636,6 +2760,11 @@ class MainWindow(QMainWindow):
             self._fail(self.t("disk_low").format(mb=free_mb))
             return
         try:
+            self._sync_screen_hint()
+            self.cfg.camera_aspect = (
+                self.preview_stage.camera_aspect()
+                if self.cfg.camera_enabled else 0.0
+            )
             final = self.rec.start()
         except FileNotFoundError:
             self._set_inputs_enabled(True)
@@ -2656,6 +2785,7 @@ class MainWindow(QMainWindow):
         self._set_inputs_enabled(False)
         self._set_recording_ui(True)
         self._sync_studio_controls()
+        self.preview_stage.clear_screen()
         QTimer.singleShot(1500, self._begin_screen_preview)
         self.timer.start()
         if self.cfg.auto_stop_min > 0:

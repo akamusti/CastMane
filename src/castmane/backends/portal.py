@@ -374,11 +374,11 @@ class PortalRecorder:
         # AAC is picked so it travels losslessly with `-c copy`
         # both in MKV and in the MP4 remux.
         # Camera picture-in-picture (OBS-style): v4l2src is composited
-        # over the screen share via `compositor` (top-left corner, fixed
-        # offset: the portal stream size is unknown at build time, so a
-        # bottom-right anchor cannot be computed here). Preview-only mode
-        # adds no branch (the Studio preview shows the camera separately).
-        from ..camera import resolve_camera_device
+        # over the screen share via `compositor`. The compositor needs
+        # absolute pixels, so the normalised placement from the Studio
+        # preview is converted with the primary-screen size (a window
+        # capture may differ; the PiP then keeps the same margin ratio).
+        from ..camera import camera_overlay_rect, resolve_camera_device
 
         cam_dev = ""
         if getattr(self.cfg, "camera_enabled", False) and getattr(
@@ -397,16 +397,24 @@ class PortalRecorder:
         if cam_dev:
             # Screen feeds compositor pad sink_0 (background); the camera
             # branch below takes sink_1 (foreground PiP).
+            cam_x, cam_y, cam_w, cam_h = camera_overlay_rect(
+                getattr(self.cfg, "camera_pos_x", 0.72),
+                getattr(self.cfg, "camera_pos_y", 0.66),
+                getattr(self.cfg, "camera_scale", 0.22),
+                self.cfg.screen_w,
+                self.cfg.screen_h,
+                cam_aspect=getattr(self.cfg, "camera_aspect", 0.0),
+            )
             cmd += ["!", "comp."]
             cmd += [
                 "v4l2src", f"device={cam_dev}",
                 "!", "videoconvert",
                 "!", "videoscale",
-                "!", "video/x-raw,width=320,height=240",
+                "!", f"video/x-raw,width={cam_w},height={cam_h}",
                 "!", "queue",
                 "!", "comp.",
                 "compositor", "name=comp",
-                "comp.sink_1::xpos=16", "comp.sink_1::ypos=16",
+                f"comp.sink_1::xpos={cam_x}", f"comp.sink_1::ypos={cam_y}",
                 "comp.sink_1::zorder=10",
                 "!", "videoconvert",
                 "!", "queue",

@@ -59,6 +59,7 @@ ve tüm PyPI bağımlılıklarını içinde getirir.
 | Duraklatma ve kalite | Çekimin ortasında encoder'ı dondurun; Taslak / Dengeli / Yüksek / Özel ön ayarları |
 | Kaynak seçimi | Tam ekran, tek pencere ya da her seferinde sor |
 | Ses | Kaynak başına mikser kazançlı, isteğe bağlı mikrofon veya sistem sesi kaydı (AAC) |
+| Kamera | OBS tarzı stüdyo önizlemesi: PiP'yi istediğin yere sürükle, tekerlekle boyutlandır, kayda göm |
 | Tekrar tamponu | Son N saniyeyi diskte tut, anı olduktan sonra kurtar |
 | Kısayollar | Yapılandırılabilir Kayıt / Duraklat / Tekrar / Klasör tuşları, başsız `--record` CLI |
 | Çıktı | `~/Videos/CastMane` altında zaman damgalı `castmane_YYYY-MM-DD_HH-MM-SS.mp4` ya da `.mkv` dosyaları, son kayıtlar listesi |
