@@ -156,9 +156,15 @@ class FfmpegX11Recorder:
         cmd = ["ffmpeg", "-y"]
         cmd += capture_input_args(self.cfg, interactive=True)
         # Camera picture-in-picture (OBS-style): a v4l2 input burned into
-        # the bottom-right corner via overlay. Preview-only mode adds no
-        # input here (the Studio preview shows the camera separately).
-        from .camera import resolve_camera_device
+        # the frame via overlay. Position and size are normalised, so the
+        # recorded PiP matches what the Studio preview shows. Preview-only
+        # mode adds no input here (the Studio preview shows the camera
+        # separately).
+        from .camera import (
+            clamp_camera_position,
+            clamp_camera_scale,
+            resolve_camera_device,
+        )
 
         cam_dev = ""
         if getattr(self.cfg, "camera_enabled", False) and getattr(
@@ -226,9 +232,20 @@ class FfmpegX11Recorder:
                 elif mic_gain != 1.0:
                     cmd += ["-filter:a", f"volume={mic_gain}"]
         else:
+            # `scale2ref` sizes the camera relative to the captured frame
+            # (h=-2 keeps the camera aspect ratio); the overlay x/y
+            # expressions use the frame's own width/height, so the same
+            # normalised position works at every resolution.
+            scale = clamp_camera_scale(
+                getattr(self.cfg, "camera_scale", 0.22))
+            pos_x = clamp_camera_position(
+                getattr(self.cfg, "camera_pos_x", 0.72))
+            pos_y = clamp_camera_position(
+                getattr(self.cfg, "camera_pos_y", 0.66))
             filters: list[str] = [
-                "[1:v]scale=320:240,format=yuv420p[cam];"
-                "[0:v][cam]overlay=W-w-10:H-h-10,format=yuv420p[vout]"
+                f"[1:v][0:v]scale2ref=w=main_w*{scale:.4f}:h=-2[cam][base];"
+                f"[base][cam]overlay=x=(W-w)*{pos_x:.4f}:"
+                f"y=(H-h)*{pos_y:.4f},format=yuv420p[vout]"
             ]
             a_out: str | None = None
             if self.cfg.audio_enabled:
