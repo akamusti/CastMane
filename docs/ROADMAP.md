@@ -43,9 +43,9 @@
 ## Durum
 
 - Faz 1: ✅ Tamamlandı
-- Faz 2: ⏳ Başlanmadı
-- Faz 3: ⏳ Başlanmadı
-- Faz 4: ⏳ Başlanmadı
+- Faz 2: ✅ Tamamlandı
+- Faz 3: ✅ Tamamlandı
+- Faz 4: ✅ Tamamlandı
 - Faz 5: ⏳ Başlanmadı
 
 ## Skor Kaydı

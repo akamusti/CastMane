@@ -4,7 +4,6 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from castmane.camera import (
@@ -125,10 +124,8 @@ def test_studio_page_layout():
     w = _window()
     assert w.pages.count() == 6
     assert [b.text() for b in w.tab_buttons][0] == w.t("tab_studio")
-    assert w.sources_list.count() == 4
-    keys = [w.sources_list.item(r).data(Qt.UserRole)
-            for r in range(w.sources_list.count())]
-    assert keys == ["display", "camera", "mic", "desktop"]
+    assert set(w.source_labels) == {"display", "camera", "mic", "desktop"}
+    assert set(w.source_switches) == {"camera", "mic", "desktop"}
     assert w.preview_badge.text() == w.t("pill_ready")
     assert w.record_btn.text() == w.t("rec_start")
 
@@ -137,10 +134,10 @@ def test_sources_camera_toggle_updates_config():
     w = _window()
     cam_item = w._source_item("camera")
     assert cam_item is not None
-    cam_item.setCheckState(Qt.Checked)
+    cam_item.setChecked(True)
     assert w.cfg.camera_enabled is True
     assert w.camera_sw.isChecked() is True
-    cam_item.setCheckState(Qt.Unchecked)
+    cam_item.setChecked(False)
     assert w.cfg.camera_enabled is False
 
 
@@ -148,21 +145,21 @@ def test_sources_audio_toggles_update_mode():
     w = _window()
     mic = w._source_item("mic")
     desk = w._source_item("desktop")
-    mic.setCheckState(Qt.Checked)
-    desk.setCheckState(Qt.Checked)
+    mic.setChecked(True)
+    desk.setChecked(True)
     assert w.cfg.audio_enabled is True and w.cfg.audio_mode == "both"
-    mic.setCheckState(Qt.Unchecked)
-    desk.setCheckState(Qt.Unchecked)
+    mic.setChecked(False)
+    desk.setChecked(False)
     assert w.cfg.audio_enabled is False
 
 
 def test_studio_inputs_locked_while_recording():
     w = _window()
     w._set_inputs_enabled(False)
-    assert w.sources_list.isEnabled() is False
+    assert w.sources_container.isEnabled() is False
     assert w.camera_sw.isEnabled() is False
     assert w.camera_combo.isEnabled() is False
     assert w.camera_embed_sw.isEnabled() is False
     w._set_inputs_enabled(True)
-    assert w.sources_list.isEnabled() is True
+    assert w.sources_container.isEnabled() is True
     assert w.camera_combo.isEnabled() is True

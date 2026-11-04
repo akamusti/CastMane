@@ -1349,21 +1349,33 @@ class MainWindow(QMainWindow):
         bottom.setSpacing(12)
 
         sources_card, sources = self._card("sources_title")
-        self.sources_list = QListWidget()
-        self.sources_list.setMaximumHeight(140)
-        self.sources_list.setMinimumHeight(140)
-        self.sources_list.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.sources_container = QWidget()
+        self.sources_layout = QVBoxLayout(self.sources_container)
+        self.sources_layout.setContentsMargins(0, 0, 0, 0)
+        self.sources_layout.setSpacing(6)
+        self.source_labels: dict[str, QLabel] = {}
+        self.source_switches: dict[str, Switch] = {}
         for key in ("display", "camera", "mic", "desktop"):
-            item = QListWidgetItem()
-            item.setData(Qt.UserRole, key)
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(8)
+            label = QLabel()
+            label.setObjectName("RowLabel")
+            self.source_labels[key] = label
+            row.addWidget(label, 1)
             if key == "display":
-                item.setFlags(item.flags() & ~Qt.ItemIsSelectable)
+                badge = QLabel("●")
+                badge.setObjectName("Hint")
+                row.addWidget(badge)
             else:
-                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-                item.setCheckState(Qt.Unchecked)
-            self.sources_list.addItem(item)
-        self.sources_list.itemChanged.connect(self._on_source_toggled)
-        sources.addWidget(self.sources_list)
+                sw = Switch()
+                sw.toggled.connect(
+                    lambda checked, k=key: self._on_source_toggled(k, checked)
+                )
+                self.source_switches[key] = sw
+                row.addWidget(self._switch_wrap(sw))
+            self.sources_layout.addLayout(row)
+        sources.addWidget(self.sources_container)
         self.hint_sources = QLabel()
         self.hint_sources.setObjectName("Hint")
         self.hint_sources.setWordWrap(True)
@@ -1406,6 +1418,14 @@ class MainWindow(QMainWindow):
         bottom.addWidget(cam_card, 1)
 
         ctrl_card, ctrl = self._card("card_controls")
+        self.studio_rec_duration = QLabel("00:00:00")
+        self.studio_rec_duration.setObjectName("StripValue")
+        self.studio_rec_duration.setAlignment(Qt.AlignCenter)
+        ctrl.addWidget(self.studio_rec_duration)
+        self.studio_sources_summary = QLabel()
+        self.studio_sources_summary.setObjectName("Hint")
+        self.studio_sources_summary.setWordWrap(True)
+        ctrl.addWidget(self.studio_sources_summary)
         self.studio_pause_btn = QPushButton()
         self.studio_pause_btn.setObjectName("Pause")
         self.studio_pause_btn.setCursor(Qt.PointingHandCursor)
@@ -2494,12 +2514,8 @@ class MainWindow(QMainWindow):
         self.cfg.save()
         self._refresh_camera_preview()
 
-    def _source_item(self, key: str) -> QListWidgetItem | None:
-        for row in range(self.sources_list.count()):
-            item = self.sources_list.item(row)
-            if item.data(Qt.UserRole) == key:
-                return item
-        return None
+    def _source_item(self, key: str):
+        return self.source_switches.get(key)
 
     def _refresh_sources(self) -> None:
         from .audio import normalize_audio_mode
@@ -2510,24 +2526,19 @@ class MainWindow(QMainWindow):
             "mic": self.cfg.audio_enabled and mode in ("mic", "both"),
             "desktop": self.cfg.audio_enabled and mode in ("desktop", "both"),
         }
-        self.sources_list.blockSignals(True)
-        for row in range(self.sources_list.count()):
-            item = self.sources_list.item(row)
-            key = item.data(Qt.UserRole)
-            item.setText(self.t(f"source_{key}"))
+        for key, label in self.source_labels.items():
+            label.setText(self.t(f"source_{key}"))
             try:
-                item.setToolTip(self.t(f"source_{key}_hint"))
+                label.setToolTip(self.t(f"source_{key}_hint"))
             except Exception:  # noqa: BLE001 - missing hint never breaks UI
                 pass
-            if key in states:
-                item.setCheckState(
-                    Qt.Checked if states[key] else Qt.Unchecked
-                )
-        self.sources_list.blockSignals(False)
+        for key, sw in self.source_switches.items():
+            sw.blockSignals(True)
+            sw.setChecked(bool(states.get(key, False)))
+            sw.blockSignals(False)
 
-    def _on_source_toggled(self, item: QListWidgetItem) -> None:
-        key = item.data(Qt.UserRole)
-        checked = item.checkState() == Qt.Checked
+    def _on_source_toggled(self, key: str, checked: bool) -> None:
+        checked = bool(checked)
         if key == "display":
             return
         if key == "camera":
@@ -2537,18 +2548,10 @@ class MainWindow(QMainWindow):
             self._on_camera_toggled(checked)
             return
         if key in ("mic", "desktop"):
-            mic_item = self._source_item("mic")
-            desk_item = self._source_item("desktop")
-            mic = (
-                mic_item.checkState() == Qt.Checked
-                if mic_item is not None
-                else False
-            )
-            desk = (
-                desk_item.checkState() == Qt.Checked
-                if desk_item is not None
-                else False
-            )
+            mic_sw = self._source_item("mic")
+            desk_sw = self._source_item("desktop")
+            mic = mic_sw.isChecked() if mic_sw is not None else False
+            desk = desk_sw.isChecked() if desk_sw is not None else False
             if mic and desk:
                 self.cfg.audio_enabled = True
                 self.cfg.audio_mode = "both"
@@ -2580,6 +2583,25 @@ class MainWindow(QMainWindow):
         )
         self.studio_pause_btn.setEnabled(recording)
         self.studio_replay_btn.setText(self.t("replay_save"))
+        try:
+            self.studio_rec_duration.setText(self.timer_lbl.text())
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            from .audio import normalize_audio_mode
+
+            mode = normalize_audio_mode(self.cfg.audio_mode)
+            parts = ["Display"]
+            if self.cfg.camera_enabled:
+                parts.append("Camera")
+            if self.cfg.audio_enabled:
+                if mode in ("mic", "both"):
+                    parts.append("Mic")
+                if mode in ("desktop", "both"):
+                    parts.append("Desktop")
+            self.studio_sources_summary.setText(" · ".join(parts))
+        except Exception:  # noqa: BLE001
+            pass
 
     # --- Recording Control ---
 
@@ -2611,7 +2633,7 @@ class MainWindow(QMainWindow):
         self.prefix_edit.setEnabled(enabled)
         # Studio sources/camera reconfigure the next pipeline, so they
         # are locked while the encoder runs (like OBS locks inputs).
-        self.sources_list.setEnabled(enabled)
+        self.sources_container.setEnabled(enabled)
         self.camera_sw.setEnabled(enabled)
         self.camera_combo.setEnabled(enabled)
         self.camera_embed_sw.setEnabled(enabled)
