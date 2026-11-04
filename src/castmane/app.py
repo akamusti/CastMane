@@ -18,6 +18,7 @@ from pathlib import Path
 from PySide6.QtCore import (
     QEasingCurve,
     QPointF,
+    QPropertyAnimation,
     QRectF,
     QSize,
     Qt,
@@ -54,6 +55,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
     QFrame,
+    QGraphicsOpacityEffect,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -657,6 +659,21 @@ def _repolish(widget: QWidget) -> None:
     widget.style().unpolish(widget)
     widget.style().polish(widget)
     widget.update()
+
+
+def _animate_opacity(owner: QWidget, widget: QWidget, start: float = 0.55,
+                     end: float = 1.0, duration: int = 180) -> None:
+    """Fade a widget in via QPropertyAnimation (motion affordance)."""
+    effect = widget.graphicsEffect()
+    if not isinstance(effect, QGraphicsOpacityEffect):
+        effect = QGraphicsOpacityEffect(widget)
+        widget.setGraphicsEffect(effect)
+    anim = QPropertyAnimation(effect, b"opacity", owner)
+    anim.setDuration(duration)
+    anim.setStartValue(start)
+    anim.setEndValue(end)
+    anim.setEasingCurve(QEasingCurve.OutCubic)
+    anim.start()
 
 
 class MarkTile(QWidget):
@@ -2189,6 +2206,7 @@ class MainWindow(QMainWindow):
         self.state_pill.setText(pill)
         self.state_pill.setProperty("state", state)
         _repolish(self.state_pill)
+        _animate_opacity(self, self.state_pill, 0.55, 1.0, 180)
 
     def _refresh_mode_hint(self) -> None:
         self.hint_mode.setText(self.t(f"mode_{self.mode_seg.current_data()}_hint"))

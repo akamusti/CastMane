@@ -46,7 +46,7 @@
 - Faz 2: ✅ Tamamlandı
 - Faz 3: ✅ Tamamlandı
 - Faz 4: ✅ Tamamlandı
-- Faz 5: ⏳ Başlanmadı
+- Faz 5: ✅ Tamamlandı
 
 ## Skor Kaydı
 
