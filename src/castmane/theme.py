@@ -24,7 +24,7 @@ HAIRLINE_STRONG = "#CFCAC1"  # borders that must read as an edge
 TEXT_MAIN = "#1F1C19"  # ink
 TEXT_SOFT = "#57524B"
 TEXT_MUTED = "#857F76"
-TEXT_FAINT = "#A8A29A"
+TEXT_FAINT = "#8C867E"
 
 # --- Ink controls (primary buttons, selected nav) ---
 INK = "#1F1C19"
@@ -119,7 +119,7 @@ def mark_path() -> str | None:
 # as the light values for backwards compatibility; runtime code should
 # go through get_theme() so a theme switch repaints everything.
 SUPPORTED_THEMES = ("light", "dark", "ocean", "midnight", "forest", "dracula", "nord")
-DEFAULT_THEME = "light"
+DEFAULT_THEME = "dark"
 
 _LIGHT: dict[str, str] = {
     "CANVAS": CANVAS,
