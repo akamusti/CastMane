@@ -9,6 +9,7 @@ Layout:
 """
 from __future__ import annotations
 
+import math
 import os
 import subprocess
 import threading
@@ -445,7 +446,7 @@ QComboBox {{
     font-size: 12px;
 }}
 QComboBox:focus {{
-    border-color: {INK};
+    border: 2px solid {INK};
 }}
 QComboBox:disabled {{
     color: {BTN_DISABLED_TEXT};
@@ -495,7 +496,7 @@ QLineEdit, QSpinBox {{
     selection-color: {PRIMARY_TEXT};
 }}
 QLineEdit:focus, QSpinBox:focus {{
-    border-color: {INK};
+    border: 2px solid {INK};
 }}
 QLineEdit:disabled, QSpinBox:disabled {{
     color: {BTN_DISABLED_TEXT};
@@ -697,14 +698,42 @@ class StatusDot(QWidget):
         super().__init__(parent)
         self.setFixedSize(12, 12)
         self._color = QColor(theme_mod.READY)
+        self._pulsing = False
+        self._phase = 0.0
+        self._timer = QTimer(self)
+        self._timer.setInterval(60)
+        self._timer.timeout.connect(self._tick)
 
     def set_color(self, color: str) -> None:
         self._color = QColor(color)
         self.update()
 
+    def set_pulsing(self, pulsing: bool) -> None:
+        if bool(pulsing) == self._pulsing:
+            return
+        self._pulsing = bool(pulsing)
+        if self._pulsing:
+            self._timer.start()
+        else:
+            self._timer.stop()
+            self._phase = 0.0
+            self.update()
+
+    def _tick(self) -> None:
+        self._phase = (self._phase + 0.18) % (2.0 * math.pi)
+        self.update()
+
     def paintEvent(self, _event) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
+        if self._pulsing:
+            alpha = int(90 + 60 * (0.5 + 0.5 * math.sin(self._phase)))
+            halo = QColor(self._color)
+            halo.setAlpha(alpha)
+            radius = 5.0 + 1.2 * (0.5 + 0.5 * math.sin(self._phase))
+            p.setPen(Qt.NoPen)
+            p.setBrush(halo)
+            p.drawEllipse(QRectF(6.0 - radius, 6.0 - radius, radius * 2, radius * 2))
         p.setPen(Qt.NoPen)
         p.setBrush(self._color)
         p.drawEllipse(QRectF(1, 1, 10, 10))
@@ -2123,15 +2152,19 @@ class MainWindow(QMainWindow):
     def _refresh_state_dot(self) -> None:
         if self._countdown_timer.isActive():
             self.status_dot.set_color(self.theme["PAUSED"])
+            self.status_dot.set_pulsing(False)
             state, pill = "countdown", f"{self._countdown_left}s"
         elif self.rec.state.paused:
             self.status_dot.set_color(self.theme["PAUSED"])
+            self.status_dot.set_pulsing(False)
             state, pill = "paused", self.t("pill_paused")
         elif self.rec.state.active:
             self.status_dot.set_color(self.theme["REC"])
+            self.status_dot.set_pulsing(True)
             state, pill = "recording", self.t("pill_recording")
         else:
             self.status_dot.set_color(self.theme["READY"])
+            self.status_dot.set_pulsing(False)
             state, pill = "ready", self.t("pill_ready")
         self.state_pill.setText(pill)
         self.state_pill.setProperty("state", state)
